@@ -88,7 +88,7 @@ def test_teacher_login_uses_the_activity_password(app):
 
     assert wrong.status_code == 401
     assert right.status_code == 200
-    assert right.get_json()["role"] == "teacher"
+    assert right.get_json() == {"role": "teacher"}
 
 
 def _create_activity(client, group_count=3):

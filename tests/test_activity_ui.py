@@ -98,6 +98,7 @@ def test_teacher_can_login_from_a_new_session_and_refresh_page(app):
 
     assert wrong.status_code == 401
     assert login.status_code == 200
+    assert login.get_json() == {"role": "teacher"}
     assert first_status["role"] == "teacher"
     assert first_page.status_code == refreshed_page.status_code == 200
     assert refreshed_status["role"] == "teacher"

@@ -17,6 +17,13 @@ def test_readme_documents_network_access_and_local_data():
     assert "不提供公網部署承諾" in readme
     assert "instance/quiz-buzzer.sqlite3" in readme
     assert "假的 Google Sheets adapter" in readme
+    assert "python -m pip install -r requirements-dev.txt" in readme
+    assert "python -m pytest" in readme
+    assert "quiz_buzzer/" in readme and "templates/" in readme
+    assert "tests/" in readme and "fixtures/" in readme
+    assert "用瀏覽器模擬老師與學生" in readme
+    assert "不同瀏覽器或隔離的瀏覽器設定檔" in readme
+    assert "同一組多人共用同一組別身分" in readme
 
 
 def test_readme_documents_user_created_google_oauth_setup_without_credentials():

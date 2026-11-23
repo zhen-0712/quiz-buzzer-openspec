@@ -7,12 +7,32 @@
 需要 Python 3.10 或更新版本。於 repo 根目錄執行：
 
 ```powershell
-py -3 -m venv .venv
+python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements-dev.txt
 ```
 
 `requirements-dev.txt` 會安裝 `requirements.txt` 的應用相依套件，並包含讀取測試範本 xlsx 所需的 openpyxl。
+
+## 專案結構
+
+```text
+quiz_buzzer/                 Flask 應用程式
+  routes/                    HTML 與 JSON API 路由
+  services/                  活動、提交、順位與匯出邏輯
+  data/                      SQLite schema 與連線
+  sheets/                    Sheets 介面、Google adapter、Guided Notes parser
+  templates/                 Jinja HTML 頁面
+  static/                    原生 JavaScript 與 CSS
+tests/                       自動化測試
+  fixtures/                  課程提供的 xlsx 範本
+scripts/                     本機輔助指令
+docs/                        驗收情境對照表
+openspec/                    變更提案、規格與任務
+requirements.txt             執行應用程式所需套件
+requirements-dev.txt         執行及測試環境套件（包含 requirements.txt）
+run.py                       Flask 啟動入口
+```
 
 ## 啟動
 
@@ -38,6 +58,12 @@ SQLite 資料庫預設放在 `instance/quiz-buzzer.sqlite3`。也可用環境變
 
 備份前先正常停止系統，待程序結束後複製資料庫檔案到安全位置。恢復時先停止系統，再將備份檔放回資料庫路徑。
 
+## 用瀏覽器模擬老師與學生
+
+啟動伺服器後，老師在瀏覽器開啟 `http://127.0.0.1:5000` 並建立活動；學生在另一個瀏覽器視窗輸入活動代碼和組別編號加入。要在同一台電腦模擬多個角色或多組，請為每個角色／組別使用不同瀏覽器或隔離的瀏覽器設定檔，避免共用登入 cookie。老師重新整理後可沿用登入狀態；換瀏覽器時，回首頁輸入活動代碼與密碼重新登入。
+
+搶答中頁面每秒向伺服器同步階段與角色允許檢視的資料。學生可選題並一次送出該題所有填空；結束後可檢視勝出結果與本組順位。
+
 ## 使用者自建 Google Sheets 憑證
 
 每位使用者以自己的 Google 帳戶和 Google Cloud 專案建立 OAuth 憑證；本 repo 不提供共用金鑰、用戶端憑證或存取 token。
@@ -60,9 +86,15 @@ SQLite 資料庫預設放在 `instance/quiz-buzzer.sqlite3`。也可用環境變
 ## 執行自動化測試
 
 ```powershell
-pytest
+.\.venv\Scripts\Activate.ps1
+python -m pytest
 ```
 
-自動化測試使用本機暫存資料庫與假的 Google Sheets adapter，不需要 Google 憑證，也不會連線 Google。
+安裝和測試均使用 `requirements-dev.txt`；它包含應用程式的 `requirements.txt`、pytest 與測試範本所需的 openpyxl。自動化測試使用本機暫存資料庫與假的 Google Sheets adapter，不需要 Google 憑證，也不會連線 Google。啟用虛擬環境後，直接執行 `pytest` 也可運作；標準測試指令是 `python -m pytest`。
 
-安裝步驟中的 `python -m pip install -r requirements.txt` 會一併安裝 pytest。請在啟用 `.venv` 後執行 `pytest`；`pytest.ini` 已設定專案根目錄匯入路徑，因此直接執行 pytest 與 `python -m pytest` 都可載入 `quiz_buzzer`。
+## 已知限制
+
+- 系統以單機本機程序和 SQLite 為目標，資料存放在啟動主機；不提供公網部署承諾。
+- 同一組多人共用同一組別身分，系統不辨識組內個別學生。
+- 區網連線依賴主機網路與防火牆設定；跨裝置連線需人工驗證。
+- Google Sheets 自動化測試使用假 adapter；真實 OAuth、雲端讀寫與權限需由使用者使用自建憑證人工驗證。

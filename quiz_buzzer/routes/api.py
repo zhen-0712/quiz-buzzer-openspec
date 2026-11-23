@@ -49,12 +49,10 @@ def teacher_login_route(activity_code: str):
     if not isinstance(payload, dict):
         return jsonify({"error": "invalid_request", "message": "請輸入活動密碼"}), 400
     try:
-        activity_id = login_teacher(
-            get_db(), activity_code, payload.get("password"), session
-        )
+        login_teacher(get_db(), activity_code, payload.get("password"), session)
     except ActivityError as error:
         return _error(error)
-    return jsonify({"role": "teacher", "activity_id": activity_id}), 200
+    return jsonify({"role": "teacher"}), 200
 
 
 @bp.post("/activities/<activity_code>/join")
