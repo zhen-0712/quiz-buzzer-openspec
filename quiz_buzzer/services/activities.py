@@ -152,6 +152,7 @@ def get_activity_status(
         "phase": activity["phase"],
         "phase_version": activity["phase_version"],
         "role": "guest",
+        "group_count": activity["group_count"],
     }
     activity_id = int(activity["id"])
     if session_data.get("teacher_activity_id") == activity_id:

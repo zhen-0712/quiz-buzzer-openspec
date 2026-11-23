@@ -7,11 +7,63 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
   </head>
   <body>
-    <main data-activity-code="{{ activity_code }}" data-phase="{{ phase }}">
-      <h1>課堂搶答系統</h1>
-      <p>活動代碼：<strong>{{ activity_code }}</strong></p>
-      <p>目前階段：<strong data-phase-label>{{ phase_label }}</strong></p>
-      <p data-connection-status role="status">連線中</p>
+    <main class="activity-shell" data-activity-code="{{ activity_code }}" data-phase="{{ phase }}">
+      <header class="activity-header">
+        <div>
+          <p class="eyebrow">課堂搶答</p>
+          <h1>活動 <span class="activity-code">{{ activity_code }}</span></h1>
+        </div>
+        <div class="phase-chip" data-phase-label>{{ phase_label }}</div>
+      </header>
+      <div class="connection-line">
+        <span data-connection-status role="status" aria-live="polite">連線中</span>
+        <a href="{{ url_for('pages.index') }}">返回首頁</a>
+      </div>
+      <p class="message" data-activity-message role="status" aria-live="polite"></p>
+      <section class="panel" data-guest-view hidden>
+        <h2>尚未加入此活動</h2>
+        <p>請回首頁以老師身分登入，或以活動代碼及組別編號加入。</p>
+      </section>
+
+      <section class="panel" data-teacher-view hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">老師控制台</p>
+            <h2>活動管理</h2>
+          </div>
+          <button type="button" class="button-secondary" data-phase-action hidden></button>
+        </div>
+        <p class="field-hint" data-phase-help></p>
+        <section data-import-section>
+          <h3>Guided Notes 匯入</h3>
+          <form class="inline-form" data-import-form>
+            <label class="sr-only" for="sheet-url">Google Sheet 連結</label>
+            <input id="sheet-url" name="sheet_url" type="url" placeholder="貼上 Google Sheet 連結" required>
+            <button type="submit" data-import-button>匯入題目</button>
+          </form>
+          <div data-import-summary class="question-list"></div>
+        </section>
+        <section data-teacher-monitor class="monitor-section"></section>
+      </section>
+
+      <section class="panel" data-student-view hidden>
+        <div data-student-waiting hidden>
+          <p class="eyebrow">學生區</p>
+          <h2>等待老師開始搶答</h2>
+          <p>題目會在老師開始後同時開放，請稍候。</p>
+        </div>
+        <div data-student-active hidden>
+          <p class="eyebrow">學生區 · 第 <span data-student-group></span> 組</p>
+          <h2>選擇題目作答</h2>
+          <p class="muted">每格最多 200 字；題組請填完所有格子後一次送出，可重新送出。</p>
+          <div data-student-questions class="question-list"></div>
+        </div>
+        <div data-student-results hidden>
+          <p class="eyebrow">活動結果 · 第 <span data-result-group></span> 組</p>
+          <h2>搶答結果</h2>
+          <div data-results-list class="question-list"></div>
+        </div>
+      </section>
     </main>
     <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
   </body>

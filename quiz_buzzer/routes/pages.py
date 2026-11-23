@@ -1,6 +1,6 @@
 """HTML page routes."""
 
-from flask import Blueprint, abort, render_template
+from flask import Blueprint, abort, make_response, render_template
 
 from quiz_buzzer.data.database import get_db
 from quiz_buzzer.services.activities import find_activity
@@ -24,9 +24,11 @@ def activity_status_page(activity_code: str):
         "active": "搶答中",
         "ended": "已結束",
     }
-    return render_template(
+    response = make_response(render_template(
         "activity_status.html",
         activity_code=activity["code"],
         phase=activity["phase"],
         phase_label=phase_labels[activity["phase"]],
-    )
+    ))
+    response.headers["Cache-Control"] = "no-store"
+    return response

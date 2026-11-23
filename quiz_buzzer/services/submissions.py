@@ -19,10 +19,19 @@ def submit_question(
     if any(not isinstance(answer, str) for answer in answers):
         raise ActivityError("每個答案都必須是文字", 400, "invalid_answers")
     normalized = [answer.strip() for answer in answers]
-    if any(not answer for answer in normalized):
-        raise ActivityError("每個填空都必須提供非空答案", 400, "blank_answer")
-    if any(len(answer) > 200 for answer in normalized):
-        raise ActivityError("每個答案不得超過 200 字", 400, "answer_too_long")
+    for position, answer in enumerate(normalized, start=1):
+        if not answer:
+            raise ActivityError(
+                f"第 {question_number} 題第 {position} 格不可空白",
+                400,
+                "blank_answer",
+            )
+        if len(answer) > 200:
+            raise ActivityError(
+                f"第 {question_number} 題第 {position} 格超過 200 字",
+                400,
+                "answer_too_long",
+            )
 
     try:
         connection.execute("BEGIN IMMEDIATE")
@@ -46,7 +55,7 @@ def submit_question(
             raise ActivityError("找不到此題號", 404, "question_not_found")
         if len(normalized) != question["answer_count"]:
             raise ActivityError(
-                f"本題需提交 {question['answer_count']} 個答案",
+                f"第 {question_number} 題需提交 {question['answer_count']} 格答案",
                 400,
                 "answer_count_mismatch",
             )

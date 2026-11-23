@@ -317,14 +317,17 @@ def test_status_endpoint_returns_only_role_scoped_group_information(app):
         "phase": "preparation",
         "phase_version": 0,
         "role": "student",
+        "group_count": 3,
         "group_number": 1,
     }
     assert teacher_status.get_json()["role"] == "teacher"
+    assert teacher_status.get_json()["group_count"] == 3
     assert teacher_status.get_json()["joined_groups"] == [1, 2]
     assert guest_status.get_json() == {
         "phase": "preparation",
         "phase_version": 0,
         "role": "guest",
+        "group_count": 3,
     }
 
 
@@ -378,9 +381,9 @@ def test_status_page_and_javascript_poll_once_per_second(app):
 
     assert page.status_code == 200
     assert 'data-activity-code="' in page.get_data(as_text=True)
-    assert "目前階段：<strong data-phase-label>準備</strong>" in page.get_data(as_text=True)
+    assert '<div class="phase-chip" data-phase-label>準備</div>' in page.get_data(as_text=True)
     assert "fetch(" in javascript
-    assert "window.setInterval(refreshActivityStatus, 1000)" in javascript
+    assert "window.setInterval(poll, 1000)" in javascript
     assert "data-connection-status" in javascript
 
 

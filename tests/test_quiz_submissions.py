@@ -80,6 +80,10 @@ def test_invalid_whole_question_submission_is_rejected_without_partial_rows(app,
 
     assert response.status_code == 400
     assert response.get_json()["error"] == error
+    if error == "blank_answer":
+        assert "第 1 題第 1 格不可空白" in response.get_json()["message"]
+    if error == "answer_too_long":
+        assert "第 1 題第 1 格超過 200 字" in response.get_json()["message"]
     with app.app_context():
         assert get_db().execute("SELECT COUNT(*) FROM submissions").fetchone()[0] == 0
         assert get_db().execute("SELECT COUNT(*) FROM submission_answers").fetchone()[0] == 0
