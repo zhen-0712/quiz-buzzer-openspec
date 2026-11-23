@@ -14,6 +14,7 @@ from quiz_buzzer.services.activities import (
     login_teacher,
 )
 from quiz_buzzer.sheets.google_adapter import GoogleSheetsAdapter
+from quiz_buzzer.services.submissions import get_quiz_view, submit_question
 
 
 bp = Blueprint("api", __name__, url_prefix="/api")
@@ -123,3 +124,40 @@ def import_questions_route(activity_code: str):
     except ActivityError as error:
         return _error(error)
     return jsonify(result), 200
+
+
+@bp.post("/activities/<activity_code>/submissions")
+def submit_question_route(activity_code: str):
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "invalid_request", "message": "請提供題號與整題答案"}), 400
+    activity = find_activity(get_db(), activity_code)
+    if activity is None:
+        return _error(ActivityError("找不到此活動代碼", 404, "activity_not_found"))
+    group_id = session.get("student_group_id")
+    if (
+        session.get("student_activity_id") != activity["id"]
+        or type(group_id) is not int
+    ):
+        return _error(ActivityError("只有已加入活動的學生可提交答案", 403, "student_required"))
+    question_number = payload.get("question_number")
+    if not isinstance(question_number, str) or not question_number.strip():
+        return _error(ActivityError("請提供題號", 400, "invalid_question_number"))
+    try:
+        result = submit_question(
+            get_db(), activity_code, group_id, question_number.strip(), payload.get("answers")
+        )
+    except ActivityError as error:
+        return _error(error)
+    return jsonify(result), 201
+
+
+@bp.get("/activities/<activity_code>/quiz")
+def quiz_view_route(activity_code: str):
+    try:
+        result = get_quiz_view(get_db(), activity_code, session)
+    except ActivityError as error:
+        return _error(error)
+    response = jsonify(result)
+    response.headers["Cache-Control"] = "no-store"
+    return response
