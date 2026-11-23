@@ -90,6 +90,8 @@ SQLite 資料庫預設放在 `instance/quiz-buzzer.sqlite3`。也可用環境變
 python -m pytest
 ```
 
+**執行 `pytest` 前必須先啟用 `.venv`（PowerShell：`.\.venv\Scripts\Activate.ps1`），否則測試收集時會因缺少 `openpyxl` 而失敗。**
+
 安裝和測試均使用 `requirements-dev.txt`；它包含應用程式的 `requirements.txt`、pytest 與測試範本所需的 openpyxl。自動化測試使用本機暫存資料庫與假的 Google Sheets adapter，不需要 Google 憑證，也不會連線 Google。啟用虛擬環境後，直接執行 `pytest` 也可運作；標準測試指令是 `python -m pytest`。
 
 ## 已知限制
