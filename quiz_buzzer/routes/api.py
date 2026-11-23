@@ -9,9 +9,11 @@ from quiz_buzzer.services.activities import (
     create_activity,
     get_activity_status,
     find_activity,
+    import_guided_notes,
     join_activity,
     login_teacher,
 )
+from quiz_buzzer.sheets.google_adapter import GoogleSheetsAdapter
 
 
 bp = Blueprint("api", __name__, url_prefix="/api")
@@ -93,3 +95,31 @@ def activity_status_route(activity_code: str):
     response = jsonify(result)
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+@bp.post("/activities/<activity_code>/import")
+def import_questions_route(activity_code: str):
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"error": "invalid_request", "message": "請提供 Google Sheet 連結"}), 400
+    activity = find_activity(get_db(), activity_code)
+    if activity is None:
+        return _error(ActivityError("找不到此活動代碼", 404, "activity_not_found"))
+    if session.get("teacher_activity_id") != activity["id"]:
+        return _error(ActivityError("只有已驗證的老師可匯入題目", 403, "teacher_required"))
+    if activity["phase"] != "preparation":
+        return _error(ActivityError("只有準備階段可匯入題目", 409, "import_phase_closed"))
+
+    adapter = current_app.config.get("SHEETS_ADAPTER")
+    if adapter is None:
+        try:
+            adapter = GoogleSheetsAdapter.from_user_credentials(current_app.instance_path)
+        except Exception as error:
+            return _error(ActivityError(str(error), 400, "sheets_credentials_unavailable"))
+    try:
+        result = import_guided_notes(
+            get_db(), activity["id"], payload.get("sheet_url"), adapter
+        )
+    except ActivityError as error:
+        return _error(error)
+    return jsonify(result), 200

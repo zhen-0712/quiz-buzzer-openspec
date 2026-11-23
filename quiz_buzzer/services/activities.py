@@ -2,8 +2,11 @@
 
 import sqlite3
 from collections.abc import MutableMapping
+import json
 
 from quiz_buzzer.services.security import authenticate_teacher, create_protected_activity
+from quiz_buzzer.sheets.models import SheetsAdapterError
+from quiz_buzzer.sheets.parser import SheetParseError, parse_guided_notes
 
 
 PHASES = ("preparation", "active", "ended")
@@ -179,3 +182,85 @@ def get_activity_status(
             if activity["phase"] == "ended":
                 status["view"] = "results"
     return status
+
+
+def import_guided_notes(
+    connection: sqlite3.Connection,
+    activity_id: int,
+    sheet_url: str,
+    sheets_adapter,
+) -> dict:
+    activity = connection.execute(
+        "SELECT phase FROM activities WHERE id = ?", (activity_id,)
+    ).fetchone()
+    if activity is None:
+        raise ActivityError("找不到此活動", 404, "activity_not_found")
+    if activity["phase"] != "preparation":
+        raise ActivityError("只有準備階段可匯入題目", 409, "import_phase_closed")
+    if not isinstance(sheet_url, str) or not sheet_url.strip():
+        raise ActivityError("請提供 Google Sheet 連結", 400, "invalid_sheet_url")
+
+    try:
+        structure = sheets_adapter.read_structure(sheet_url.strip())
+        parsed = parse_guided_notes(structure)
+    except SheetParseError as error:
+        raise ActivityError(str(error), 400, "sheet_structure_invalid") from error
+    except SheetsAdapterError as error:
+        raise ActivityError(str(error), 502, "sheet_read_failed") from error
+    except Exception as error:
+        raise ActivityError(f"Google Sheet 讀取失敗：{error}", 502, "sheet_read_failed") from error
+
+    snapshot_json = json.dumps(
+        parsed.structure_snapshot(), ensure_ascii=False, sort_keys=True
+    )
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        current = connection.execute(
+            "SELECT phase FROM activities WHERE id = ?", (activity_id,)
+        ).fetchone()
+        if current is None:
+            raise ActivityError("找不到此活動", 404, "activity_not_found")
+        if current["phase"] != "preparation":
+            raise ActivityError("只有準備階段可匯入題目", 409, "import_phase_closed")
+
+        connection.execute("DELETE FROM questions WHERE activity_id = ?", (activity_id,))
+        for question in parsed.questions:
+            question_id = connection.execute(
+                "INSERT INTO questions (activity_id, position, question_number, answer_count) "
+                "VALUES (?, ?, ?, ?)",
+                (activity_id, question.position, question.question_number, len(question.blanks)),
+            ).lastrowid
+            for blank in question.blanks:
+                connection.execute(
+                    "INSERT INTO answer_cells "
+                    "(question_id, position, worksheet_id, row_index, column_index, a1_address) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        question_id,
+                        blank.position,
+                        blank.worksheet_id,
+                        blank.row_index,
+                        blank.column_index,
+                        blank.a1_address,
+                    ),
+                )
+        connection.execute(
+            "UPDATE activities SET source_url = ?, source_spreadsheet_id = ?, "
+            "source_structure_json = ? WHERE id = ?",
+            (sheet_url.strip(), parsed.spreadsheet_id, snapshot_json, activity_id),
+        )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+    return {
+        "spreadsheet_id": parsed.spreadsheet_id,
+        "worksheet_id": parsed.worksheet_id,
+        "worksheet_title": parsed.worksheet_title,
+        "question_count": len(parsed.questions),
+        "questions": [
+            {"question_number": question.question_number, "answer_count": len(question.blanks)}
+            for question in parsed.questions
+        ],
+    }

@@ -9,8 +9,10 @@
 ```powershell
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
 ```
+
+`requirements-dev.txt` 會安裝 `requirements.txt` 的應用相依套件，並包含讀取測試範本 xlsx 所需的 openpyxl。
 
 ## 啟動
 
@@ -35,6 +37,19 @@ python run.py --host 127.0.0.1 --port 5000
 SQLite 資料庫預設放在 `instance/quiz-buzzer.sqlite3`。也可用環境變數 `QUIZ_BUZZER_DATABASE` 指定其他本機資料庫路徑。`instance/`、資料庫與 SQLite WAL 暫存檔已由 `.gitignore` 排除，不應提交到版本庫。
 
 備份前先正常停止系統，待程序結束後複製資料庫檔案到安全位置。恢復時先停止系統，再將備份檔放回資料庫路徑。
+
+## 使用者自建 Google Sheets 憑證
+
+每位使用者以自己的 Google 帳戶和 Google Cloud 專案建立 OAuth 憑證；本 repo 不提供共用金鑰、用戶端憑證或存取 token。
+
+1. 在 Google Cloud Console 建立自己的 Cloud 專案。
+2. 在該專案的 API Library 啟用 Google Sheets API。
+3. 設定 OAuth 同意畫面／Google Auth Platform，填妥應用程式資訊；若應用程式處於測試模式，將自己用來授權的 Google 帳戶加入測試使用者。
+4. 建立 OAuth 用戶端，應用程式類型選「電腦版應用程式（Desktop app）」，下載該用戶端的 JSON 檔。
+5. 在 repo 根目錄建立 `instance/`（如尚不存在），把下載的 JSON 放入並命名為 `instance/client_secret.json`。`instance/` 已被 `.gitignore` 排除，請勿提交 JSON 或 `instance/token.json`。
+6. 將要匯入及匯出的 Google Sheet 分享給剛才授權的同一 Google 帳戶，並授予編輯者權限。
+
+首次讀取 Sheet 時，系統會使用這份使用者自建的 Desktop OAuth 用戶端要求帳戶授權；授權後的 token 僅存放在 `instance/token.json`。自動化測試使用假 Sheets adapter，不需要建立 Cloud 專案、不會讀取這些檔案，也不會啟動 OAuth 授權流程。
 
 ## 執行自動化測試
 
