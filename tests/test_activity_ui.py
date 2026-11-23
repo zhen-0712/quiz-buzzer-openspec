@@ -200,6 +200,26 @@ def test_fake_sheets_end_to_end_flow_and_utf8_answers_are_preserved(app):
     assert page.status_code == 200
 
 
+def test_teacher_export_controls_appear_only_for_ended_activity(app):
+    teacher = app.test_client()
+    code = _create_activity(teacher)
+    teacher.post(f"/api/activities/{code}/import", json={"sheet_url": SHEET_URL})
+    teacher.post(f"/api/activities/{code}/phase", json={"phase": "active"})
+    active_page = teacher.get(f"/activities/{code}/status").get_data(as_text=True)
+    teacher.post(f"/api/activities/{code}/phase", json={"phase": "ended"})
+    ended_page = teacher.get(f"/activities/{code}/status").get_data(as_text=True)
+    javascript = (ROOT / "quiz_buzzer" / "static" / "js" / "app.js").read_text(encoding="utf-8")
+
+    assert "匯出到 Google Sheet" in active_page
+    assert "下載 CSV" in active_page
+    assert 'data-export-section class="export-section" hidden' in active_page
+    assert 'data-export-section class="export-section" hidden' in ended_page
+    assert "匯出會覆寫原 Google Sheet 的作答格" in ended_page
+    assert "請先備份原 Google Sheet" in javascript
+    assert 'exportSection.hidden = phase !== "ended"' in javascript
+    assert "匯出失敗：${error.message}" in javascript
+
+
 def _all_keys(value):
     if isinstance(value, dict):
         found = set(value)

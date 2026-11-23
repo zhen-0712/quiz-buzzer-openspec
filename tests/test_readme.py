@@ -30,6 +30,7 @@ def test_readme_documents_user_created_google_oauth_setup_without_credentials():
         "測試使用者",
         "電腦版應用程式（Desktop app）",
         "instance/client_secret.json",
+        "**下載後必須將 JSON 重新命名為 `client_secret.json`**",
         "instance/token.json",
         "分享給剛才授權的同一 Google 帳戶",
     ]
@@ -37,6 +38,16 @@ def test_readme_documents_user_created_google_oauth_setup_without_credentials():
     assert "-----BEGIN PRIVATE KEY-----" not in readme
     assert '"private_key"' not in readme
     assert '"client_id"' not in readme
+
+
+def test_readme_documents_export_backup_and_csv_row_convention():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "匯出前先備份原試算表" in readme
+    assert "重新讀取 Sheet" in readme
+    assert "UTF-8 BOM" in readme
+    assert "每個填空各佔一列" in readme
+    assert "只包含各題勝出組的答案" in readme
 
 
 def test_documented_entrypoint_help_runs():

@@ -48,7 +48,8 @@ class GoogleSheetsAdapter:
         token_path = instance_dir / token_filename
         if not credentials_path.is_file():
             raise SheetsAdapterError(
-                f"找不到使用者 OAuth 憑證：{credentials_path}；請依 README 建立並放入 instance/"
+                f"找不到使用者 OAuth 憑證：{credentials_path}；下載後必須將 JSON 重新命名為 "
+                "client_secret.json，再放入 instance/。"
             )
 
         credentials = None

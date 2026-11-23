@@ -146,6 +146,10 @@
     const teacherMonitor = document.querySelector("[data-teacher-monitor]");
     const phaseAction = document.querySelector("[data-phase-action]");
     const phaseHelp = document.querySelector("[data-phase-help]");
+    const exportSection = document.querySelector("[data-export-section]");
+    const exportButton = document.querySelector("[data-export-button]");
+    const exportResult = document.querySelector("[data-export-result]");
+    const downloadCsv = document.querySelector("[data-download-csv]");
     const studentWaiting = document.querySelector("[data-student-waiting]");
     const studentActive = document.querySelector("[data-student-active]");
     const studentQuestions = document.querySelector("[data-student-questions]");
@@ -183,6 +187,8 @@
       const phase = quiz.phase;
       renderQuestions(quiz.questions || []);
       importSection.hidden = phase !== "preparation";
+      exportSection.hidden = phase !== "ended";
+      downloadCsv.href = `/api/activities/${encodeURIComponent(code)}/export.csv`;
       if (phase === "ended") {
         phaseAction.hidden = true;
         phaseHelp.textContent = "活動已結束，無法重新開啟。";
@@ -386,6 +392,31 @@
       } catch (error) {
         showMessage(message, error.message, "error");
         await poll();
+      }
+    });
+
+    exportButton.addEventListener("click", async () => {
+      if (exportButton.disabled || activityView.dataset.phase !== "ended") return;
+      const confirmed = window.confirm(
+        "請先備份原 Google Sheet。確認已完成備份，並要以目前勝出答案覆寫作答格嗎？"
+      );
+      if (!confirmed) return;
+      exportButton.disabled = true;
+      showMessage(exportResult, "正在重新檢查 Sheet 結構並匯出…");
+      try {
+        const result = await apiRequest(`/api/activities/${encodeURIComponent(code)}/export`, {
+          method: "POST",
+          body: JSON.stringify({ confirm_backup: true }),
+        });
+        showMessage(
+          exportResult,
+          `匯出成功：寫入 ${result.questions_written} 題、${result.cells_written} 格。`,
+          "success",
+        );
+      } catch (error) {
+        showMessage(exportResult, `匯出失敗：${error.message}`, "error");
+      } finally {
+        exportButton.disabled = false;
       }
     });
 

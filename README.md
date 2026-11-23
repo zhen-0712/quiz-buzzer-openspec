@@ -46,10 +46,16 @@ SQLite 資料庫預設放在 `instance/quiz-buzzer.sqlite3`。也可用環境變
 2. 在該專案的 API Library 啟用 Google Sheets API。
 3. 設定 OAuth 同意畫面／Google Auth Platform，填妥應用程式資訊；若應用程式處於測試模式，將自己用來授權的 Google 帳戶加入測試使用者。
 4. 建立 OAuth 用戶端，應用程式類型選「電腦版應用程式（Desktop app）」，下載該用戶端的 JSON 檔。
-5. 在 repo 根目錄建立 `instance/`（如尚不存在），把下載的 JSON 放入並命名為 `instance/client_secret.json`。`instance/` 已被 `.gitignore` 排除，請勿提交 JSON 或 `instance/token.json`。
+5. 在 repo 根目錄建立 `instance/`（如尚不存在）；**下載後必須將 JSON 重新命名為 `client_secret.json`**，再放入 `instance/client_secret.json`。`instance/` 已被 `.gitignore` 排除，請勿提交 JSON 或 `instance/token.json`。找不到憑證時，系統會提示憑證檔名必須是 `client_secret.json`。
 6. 將要匯入及匯出的 Google Sheet 分享給剛才授權的同一 Google 帳戶，並授予編輯者權限。
 
 首次讀取 Sheet 時，系統會使用這份使用者自建的 Desktop OAuth 用戶端要求帳戶授權；授權後的 token 僅存放在 `instance/token.json`。自動化測試使用假 Sheets adapter，不需要建立 Cloud 專案、不會讀取這些檔案，也不會啟動 OAuth 授權流程。
+
+## 匯出結果
+
+活動結束後，老師在活動頁按「匯出到 Google Sheet」。匯出前先備份原試算表，並在確認提示中確認已備份；系統會重新讀取 Sheet，確認題號、填空數、順序與儲存格位置仍與匯入時相同，再把各題勝出組的答案以純文字寫回原作答格。任何結構差異或雲端讀寫錯誤都會中止並顯示原因；可在修正後再次匯出，重複匯出會以最新勝出答案覆寫作答格。
+
+活動結束後，老師也可按「下載 CSV」。CSV 使用 UTF-8 BOM，欄位為題號、組別、答案、搶答順位；題組的每個填空各佔一列，題號、組別和順位會在各列重複。CSV 只包含各題勝出組的答案。
 
 ## 執行自動化測試
 

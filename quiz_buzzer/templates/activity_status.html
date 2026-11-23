@@ -44,6 +44,15 @@
           <div data-import-summary class="question-list"></div>
         </section>
         <section data-teacher-monitor class="monitor-section"></section>
+        <section data-export-section class="export-section" hidden>
+          <h3>匯出結果</h3>
+          <p class="backup-notice">匯出會覆寫原 Google Sheet 的作答格。請先備份原試算表；確認備份後再執行。</p>
+          <div class="export-actions">
+            <button type="button" data-export-button>匯出到 Google Sheet</button>
+            <a class="button-link button-secondary" data-download-csv href="#">下載 CSV</a>
+          </div>
+          <p class="message" data-export-result role="status" aria-live="polite"></p>
+        </section>
       </section>
 
       <section class="panel" data-student-view hidden>

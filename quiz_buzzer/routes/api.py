@@ -1,6 +1,7 @@
 """JSON endpoints for the activity lifecycle."""
 
 from flask import Blueprint, current_app, jsonify, request, session
+from flask import Response
 
 from quiz_buzzer.data.database import get_db
 from quiz_buzzer.services.activities import (
@@ -14,7 +15,9 @@ from quiz_buzzer.services.activities import (
     login_teacher,
 )
 from quiz_buzzer.sheets.google_adapter import GoogleSheetsAdapter
+from quiz_buzzer.sheets.models import SheetsAdapterError
 from quiz_buzzer.services.submissions import get_quiz_view, submit_question
+from quiz_buzzer.services.exports import build_winner_csv, export_ended_activity
 
 
 bp = Blueprint("api", __name__, url_prefix="/api")
@@ -115,6 +118,8 @@ def import_questions_route(activity_code: str):
     if adapter is None:
         try:
             adapter = GoogleSheetsAdapter.from_user_credentials(current_app.instance_path)
+        except SheetsAdapterError as error:
+            return _error(ActivityError(str(error), 400, "sheets_credentials_unavailable"))
         except Exception as error:
             return _error(ActivityError(str(error), 400, "sheets_credentials_unavailable"))
     try:
@@ -165,5 +170,63 @@ def quiz_view_route(activity_code: str):
     except ActivityError as error:
         return _error(error)
     response = jsonify(result)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@bp.post("/activities/<activity_code>/export")
+def export_activity_route(activity_code: str):
+    activity = find_activity(get_db(), activity_code)
+    if activity is None:
+        return _error(ActivityError("找不到此活動代碼", 404, "activity_not_found"))
+    if session.get("teacher_activity_id") != activity["id"]:
+        return _error(ActivityError("只有已驗證的老師可匯出", 403, "teacher_required"))
+    if activity["phase"] != "ended":
+        return _error(ActivityError("只有已結束的活動可以匯出", 409, "export_phase_closed"))
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or payload.get("confirm_backup") is not True:
+        return _error(
+            ActivityError("匯出前請先備份原 Google Sheet，確認後再執行", 400, "backup_confirmation_required")
+        )
+    if not activity["source_url"] or not activity["source_spreadsheet_id"]:
+        return _error(ActivityError("此活動沒有可匯出的 Guided Notes 來源", 409, "export_source_missing"))
+
+    adapter = current_app.config.get("SHEETS_ADAPTER")
+    if adapter is None:
+        try:
+            adapter = GoogleSheetsAdapter.from_user_credentials(
+                current_app.instance_path
+            )
+        except SheetsAdapterError as error:
+            return _error(ActivityError(str(error), 400, "sheets_credentials_unavailable"))
+        except Exception as error:
+            return _error(
+                ActivityError(
+                    f"無法建立 Google Sheets 連線：{error}",
+                    400,
+                    "sheets_credentials_unavailable",
+                )
+            )
+    try:
+        result = export_ended_activity(get_db(), activity["id"], adapter)
+    except ActivityError as error:
+        return _error(error)
+    return jsonify({"status": "success", **result}), 200
+
+
+@bp.get("/activities/<activity_code>/export.csv")
+def export_activity_csv_route(activity_code: str):
+    activity = find_activity(get_db(), activity_code)
+    if activity is None:
+        return _error(ActivityError("找不到此活動代碼", 404, "activity_not_found"))
+    if session.get("teacher_activity_id") != activity["id"]:
+        return _error(ActivityError("只有已驗證的老師可下載 CSV", 403, "teacher_required"))
+    if activity["phase"] != "ended":
+        return _error(ActivityError("只有已結束的活動可以下載結果", 409, "export_phase_closed"))
+    csv_text = build_winner_csv(get_db(), activity["id"])
+    response = Response(csv_text.encode("utf-8"), content_type="text/csv; charset=utf-8")
+    response.headers["Content-Disposition"] = (
+        f'attachment; filename="{activity["code"]}-results.csv"'
+    )
     response.headers["Cache-Control"] = "no-store"
     return response
