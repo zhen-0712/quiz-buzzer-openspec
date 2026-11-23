@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>活動 {{ activity_code }}｜課堂搶答系統</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  </head>
+  <body>
+    <main data-activity-code="{{ activity_code }}" data-phase="{{ phase }}">
+      <h1>課堂搶答系統</h1>
+      <p>活動代碼：<strong>{{ activity_code }}</strong></p>
+      <p>目前階段：<strong data-phase-label>{{ phase_label }}</strong></p>
+      <p data-connection-status role="status">連線中</p>
+    </main>
+    <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+  </body>
+</html>

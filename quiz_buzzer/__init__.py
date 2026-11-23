@@ -6,6 +6,7 @@ from flask import Flask
 
 from quiz_buzzer.config import configure_app
 from quiz_buzzer.data.database import init_app as init_database
+from quiz_buzzer.routes.api import bp as api_blueprint
 from quiz_buzzer.routes.pages import bp as pages_blueprint
 
 
@@ -16,6 +17,7 @@ def create_app(test_config: dict | None = None) -> Flask:
     if test_config:
         app.config.update(test_config)
     app.register_blueprint(pages_blueprint)
+    app.register_blueprint(api_blueprint)
     init_database(app)
 
     return app
