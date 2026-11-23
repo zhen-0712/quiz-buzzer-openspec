@@ -77,15 +77,23 @@
 - **THEN** 該組在該題組只有一個有效序號與一個順位
 
 ### Requirement: Limit live student visibility before the activity ends
-準備與搶答中，學生 MUST 僅能檢視自己組別的作答及狀態，且不得取得其他組的答案、作答狀況或順位。
+準備與搶答中，學生 MUST 僅能檢視自己組別的資料。搶答中，學生 MUST 只看到自己組每題目前有效答案與「已送出」狀態；學生的任何 API 回應 MUST NOT 包含順位、序號、提交時間、有效提交標記或其他可推斷順位的欄位。順位 MUST 僅在活動結束後的結果檢視提供。學生 MUST NOT 取得其他組的答案、作答狀況或順位。
 
 #### Scenario: Student views own answer during the active phase
 - **WHEN** 學生在搶答中檢視活動
-- **THEN** 系統僅呈現該學生組別的作答及狀態
+- **THEN** 系統僅呈現該學生組別每題目前有效答案及「已送出」狀態，且不包含順位、序號、提交時間或有效提交標記
+
+#### Scenario: Student submission acknowledgement hides ordering data
+- **WHEN** 學生在搶答中成功提交或重送答案
+- **THEN** 提交 API 僅回傳題號、已接受答案及「已送出」狀態，不回傳順位、序號、提交時間或可推斷順位的欄位
 
 #### Scenario: Student cannot inspect other groups before the end
 - **WHEN** 學生在準備或搶答中查詢活動結果
-- **THEN** 系統不提供其他組的答案、作答狀況或順位
+- **THEN** 系統不提供其他組的答案、作答狀況、順位、序號或提交時間
+
+#### Scenario: Student receives own rank only after the activity ends
+- **WHEN** 學生在已結束階段檢視結果
+- **THEN** 系統提供每題勝出組別及答案，並提供該學生組別答案與順位，不提供提交序號
 
 ### Requirement: Let the teacher monitor submissions and current ranks live
 搶答中，老師 MUST 能即時檢視各組已作答的題目及各題目前順位；順位 MUST 反映目前各組最後一次被接受的提交。

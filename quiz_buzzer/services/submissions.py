@@ -131,7 +131,13 @@ def get_quiz_view(
         else:
             response["group_number"] = group_number
             response["submissions"] = [
-                row for row in all_rows if row["group_number"] == group_number
+                {
+                    "question_number": row["question_number"],
+                    "answers": row["answers"],
+                    "status": "已送出",
+                }
+                for row in all_rows
+                if row["group_number"] == group_number and row["is_effective"]
             ]
         return response
 
@@ -245,6 +251,5 @@ def _public_submission(item: dict) -> dict:
     return {
         "group_number": item["group_number"],
         "answers": item["answers"],
-        "sequence": item["sequence"],
         "rank": item["rank"],
     }

@@ -50,6 +50,20 @@ def _submit(student, code, answers, question_number="1"):
     )
 
 
+def _response_keys(value):
+    if isinstance(value, dict):
+        keys = set(value)
+        for nested in value.values():
+            keys.update(_response_keys(nested))
+        return keys
+    if isinstance(value, list):
+        keys = set()
+        for nested in value:
+            keys.update(_response_keys(nested))
+        return keys
+    return set()
+
+
 @pytest.mark.parametrize(
     ("answers", "error"),
     [
@@ -96,13 +110,18 @@ def test_resubmission_replaces_effective_answer_and_rejected_resubmission_keeps_
     replacement = _submit(students[0], code, ["gamma"]).get_json()
     rejected = _submit(students[0], code, [" "])
 
-    assert replacement["sequence"] > other["sequence"] > initial["sequence"]
+    for acknowledgement in (initial, other, replacement):
+        assert acknowledgement["status"] == "已送出"
+        assert not {"rank", "sequence", "accepted_at", "is_effective"} & _response_keys(acknowledgement)
     assert replacement["answers"] == ["gamma"]
     assert rejected.status_code == 400
     view = teacher.get(f"/api/activities/{code}/quiz").get_json()
     current = {item["group_number"]: item for item in view["current_submissions"]}
+    history_by_answer = {
+        item["answers"][0]: item["sequence"] for item in view["submissions"]
+    }
+    assert history_by_answer["gamma"] > history_by_answer["beta"] > history_by_answer["alpha"]
     assert current[1]["answers"] == ["gamma"]
-    assert current[1]["sequence"] == replacement["sequence"]
     assert current[1]["rank"] == 2
     assert current[2]["rank"] == 1
     assert len(view["submissions"]) == 3
@@ -111,24 +130,27 @@ def test_resubmission_replaces_effective_answer_and_rejected_resubmission_keeps_
             "SELECT id FROM submissions WHERE group_id = "
             "(SELECT id FROM groups WHERE group_number = 1) ORDER BY id"
         ).fetchall()
-        assert [row["id"] for row in own_history] == [initial["sequence"], replacement["sequence"]]
+        assert [row["id"] for row in own_history] == [
+            history_by_answer["alpha"], history_by_answer["gamma"]
+        ]
 
 
 def test_client_clock_does_not_change_server_sequence_or_rank(app):
     code, teacher, students = _prepare_activity(app, active=True)
-    first = students[0].post(
+    students[0].post(
         f"/api/activities/{code}/submissions",
         json={"question_number": "1", "answers": ["first"], "client_time": "2099-01-01T00:00:00Z"},
-    ).get_json()
-    second = students[1].post(
+    )
+    students[1].post(
         f"/api/activities/{code}/submissions",
         json={"question_number": "1", "answers": ["second"], "client_time": "1970-01-01T00:00:00Z"},
-    ).get_json()
+    )
 
-    assert first["sequence"] < second["sequence"]
     current = teacher.get(f"/api/activities/{code}/quiz").get_json()["current_submissions"]
     ranks = {row["group_number"]: row["rank"] for row in current}
+    sequences = {row["group_number"]: row["sequence"] for row in current}
     assert ranks == {1: 1, 2: 2}
+    assert sequences[1] < sequences[2]
 
 
 def test_concurrent_accepted_submissions_get_unique_sequences_and_consistent_ranks(app):
@@ -170,9 +192,9 @@ def test_concurrent_accepted_submissions_get_unique_sequences_and_consistent_ran
     by_sequence = sorted(current, key=lambda row: row["sequence"])
     assert [row["rank"] for row in by_sequence] == [1, 2, 3]
     view = students[0].get(f"/api/activities/{code}/quiz").get_json()
-    # Students receive only their own row; ranks and acceptance order are teacher-visible.
     assert len(view["submissions"]) == 1
-    assert view["submissions"][0]["group_number"] == 1
+    assert view["submissions"][0]["status"] == "已送出"
+    assert not {"rank", "sequence", "accepted_at", "is_effective"} & _response_keys(view)
 
 
 def test_multi_blank_question_is_one_ranked_submission_and_uses_answer_order(app):
@@ -182,7 +204,8 @@ def test_multi_blank_question_is_one_ranked_submission_and_uses_answer_order(app
 
     assert accepted.status_code == 201
     assert accepted.get_json()["answers"] == ["first", "second"]
-    assert accepted.get_json()["rank"] == 1
+    assert accepted.get_json()["status"] == "已送出"
+    assert not {"rank", "sequence"} & _response_keys(accepted.get_json())
     view = teacher.get(f"/api/activities/{code}/quiz").get_json()
     assert len(view["current_submissions"]) == 1
     assert view["current_submissions"][0]["answers"] == ["first", "second"]
@@ -200,12 +223,25 @@ def test_quiz_api_scopes_student_and_teacher_data_by_phase(app):
         get_db().commit()
     active_view = students[0].get(f"/api/activities/{code}/quiz").get_json()
     assert active_view["questions"] == [{"question_number": "1", "answer_count": 1}]
-    assert _submit(students[1], code, ["winner answer"]).status_code == 201
-    assert _submit(students[0], code, ["own answer"]).status_code == 201
-    assert _submit(students[2], code, ["other losing answer"]).status_code == 201
+    active_join = app.test_client().post(
+        f"/api/activities/{code}/join", json={"group_number": 3}
+    ).get_json()
+    active_status = students[0].get(f"/api/activities/{code}/status").get_json()
+    assert not {"rank", "sequence", "accepted_at", "is_effective"} & _response_keys(active_join)
+    assert not {"rank", "sequence", "accepted_at", "is_effective"} & _response_keys(active_status)
+    for response in (
+        _submit(students[1], code, ["winner answer"]),
+        _submit(students[0], code, ["own answer"]),
+        _submit(students[2], code, ["other losing answer"]),
+    ):
+        assert response.status_code == 201
+        assert not {"rank", "sequence", "accepted_at", "is_effective"} & _response_keys(response.get_json())
 
     student_live_view = students[0].get(f"/api/activities/{code}/quiz").get_json()
-    assert [row["group_number"] for row in student_live_view["submissions"]] == [1]
+    assert student_live_view["submissions"] == [
+        {"question_number": "1", "answers": ["own answer"], "status": "已送出"}
+    ]
+    assert not {"rank", "sequence", "accepted_at", "is_effective"} & _response_keys(student_live_view)
     assert "winner answer" not in str(student_live_view)
     assert "other losing answer" not in str(student_live_view)
     teacher_live_view = teacher.get(f"/api/activities/{code}/quiz").get_json()
@@ -225,6 +261,8 @@ def test_quiz_api_scopes_student_and_teacher_data_by_phase(app):
     assert student_results["results"][0]["own"]["group_number"] == 2
     assert "own answer" not in str(student_results)
     assert "other losing answer" not in str(student_results)
+    assert "rank" in _response_keys(student_results)
+    assert "sequence" not in _response_keys(student_results)
     teacher_results = teacher.get(f"/api/activities/{code}/quiz").get_json()
     assert len(teacher_results["submissions"]) == 3
     assert len(teacher_results["current_submissions"]) == 3

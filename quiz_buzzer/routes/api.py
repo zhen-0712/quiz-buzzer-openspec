@@ -149,7 +149,13 @@ def submit_question_route(activity_code: str):
         )
     except ActivityError as error:
         return _error(error)
-    return jsonify(result), 201
+    return jsonify(
+        {
+            "question_number": result["question_number"],
+            "answers": result["answers"],
+            "status": "已送出",
+        }
+    ), 201
 
 
 @bp.get("/activities/<activity_code>/quiz")
