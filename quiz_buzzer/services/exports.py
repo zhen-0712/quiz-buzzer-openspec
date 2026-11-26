@@ -33,7 +33,9 @@ def export_ended_activity(
         raise ActivityError("匯入時的結構快照無法讀取，已中止匯出", 409, "export_snapshot_invalid") from error
 
     try:
-        structure = sheets_adapter.read_structure(activity["source_url"])
+        structure = sheets_adapter.read_structure(
+            activity["source_url"], expected.get("worksheet_id")
+        )
         parsed = parse_guided_notes(structure)
     except SheetParseError as error:
         raise ActivityError(

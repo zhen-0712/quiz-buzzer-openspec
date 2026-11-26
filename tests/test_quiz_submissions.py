@@ -139,6 +139,30 @@ def test_resubmission_replaces_effective_answer_and_rejected_resubmission_keeps_
         ]
 
 
+def test_identical_resubmission_gets_new_sequence_and_changes_rank(app):
+    code, teacher, students = _prepare_activity(app, active=True)
+
+    first = _submit(students[0], code, ["same answer"])
+    other = _submit(students[1], code, ["other answer"])
+    repeated = _submit(students[0], code, ["same answer"])
+    live = teacher.get(f"/api/activities/{code}/quiz").get_json()["current_submissions"]
+    current = {row["group_number"]: row for row in live}
+
+    assert all(response.status_code == 201 for response in (first, other, repeated))
+    assert current[1]["sequence"] > current[2]["sequence"]
+    assert current[1]["rank"] == 2
+    assert current[2]["rank"] == 1
+    with app.app_context():
+        history = get_db().execute(
+            "SELECT a.answer FROM submission_answers a "
+            "JOIN submissions s ON s.id = a.submission_id "
+            "JOIN groups g ON g.id = s.group_id "
+            "WHERE g.group_number = 1 ORDER BY s.id"
+        ).fetchall()
+        assert [row["answer"] for row in history] == ["same answer", "same answer"]
+        assert get_db().execute("SELECT COUNT(*) FROM submissions").fetchone()[0] == 3
+
+
 def test_client_clock_does_not_change_server_sequence_or_rank(app):
     code, teacher, students = _prepare_activity(app, active=True)
     students[0].post(

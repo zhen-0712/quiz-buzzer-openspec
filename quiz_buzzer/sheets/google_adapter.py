@@ -19,6 +19,7 @@ GRID_FIELDS = (
     "spreadsheetId,sheets(properties(sheetId,title),merges,"
     "data(startRow,startColumn,rowData(values(formattedValue))))"
 )
+SHEET_METADATA_FIELDS = "spreadsheetId,sheets(properties(sheetId,title))"
 
 
 class GoogleSheetsAdapter:
@@ -67,26 +68,52 @@ class GoogleSheetsAdapter:
         service = build("sheets", "v4", credentials=credentials, cache_discovery=False)
         return cls(service)
 
-    def read_structure(self, sheet_url: str) -> SpreadsheetStructure:
+    def read_structure(
+        self, sheet_url: str, worksheet_id: str | None = None
+    ) -> SpreadsheetStructure:
         spreadsheet_id, requested_gid = self._parse_url(sheet_url)
-        try:
-            response = (
-                self._service.spreadsheets()
-                .get(
-                    spreadsheetId=spreadsheet_id,
-                    includeGridData=True,
-                    fields=GRID_FIELDS,
-                )
-                .execute()
+        if (
+            requested_gid is not None
+            and worksheet_id is not None
+            and requested_gid != str(worksheet_id)
+        ):
+            raise SheetsAdapterError(
+                f"連結指定的工作表 gid={requested_gid} 與匯入工作表 {worksheet_id} 不一致"
             )
-        except Exception as error:
-            raise SheetsAdapterError(f"Google Sheet 讀取失敗：{error}") from error
+        selected_worksheet_id = (
+            requested_gid if requested_gid is not None else str(worksheet_id) if worksheet_id is not None else None
+        )
+        if selected_worksheet_id is None:
+            response = self._get_structure(spreadsheet_id)
+        else:
+            metadata = self._get_sheet_metadata(spreadsheet_id)
+            selected_title = next(
+                (
+                    str(sheet.get("properties", {}).get("title", ""))
+                    for sheet in metadata.get("sheets", [])
+                    if str(sheet.get("properties", {}).get("sheetId"))
+                    == selected_worksheet_id
+                ),
+                None,
+            )
+            if selected_title is None:
+                if requested_gid is not None:
+                    raise SheetsAdapterError(
+                        f"找不到連結指定的工作表 gid={requested_gid}"
+                    )
+                raise SheetsAdapterError(
+                    f"找不到匯入時記錄的工作表 worksheet_id={selected_worksheet_id}"
+                )
+            response = self._get_structure(
+                spreadsheet_id,
+                ranges=[self._quote_sheet_name(selected_title)],
+            )
 
         worksheets = []
         for sheet in response.get("sheets", []):
             properties = sheet.get("properties", {})
             sheet_id = properties.get("sheetId")
-            if requested_gid is not None and str(sheet_id) != requested_gid:
+            if selected_worksheet_id is not None and str(sheet_id) != selected_worksheet_id:
                 continue
             worksheets.append(
                 WorksheetGrid(
@@ -105,8 +132,10 @@ class GoogleSheetsAdapter:
                 )
             )
 
-        if requested_gid is not None and not worksheets:
-            raise SheetsAdapterError(f"找不到連結指定的工作表 gid={requested_gid}")
+        if selected_worksheet_id is not None and not worksheets:
+            raise SheetsAdapterError(
+                f"Google Sheet 回應中找不到已選工作表 worksheet_id={selected_worksheet_id}"
+            )
         return SpreadsheetStructure(
             spreadsheet_id=str(response.get("spreadsheetId", spreadsheet_id)),
             worksheets=worksheets,
@@ -184,3 +213,34 @@ class GoogleSheetsAdapter:
                         row.append(None)
                     row[column_index] = cell_data.get("formattedValue")
         return rows
+
+    def _get_sheet_metadata(self, spreadsheet_id: str) -> dict:
+        try:
+            return (
+                self._service.spreadsheets()
+                .get(
+                    spreadsheetId=spreadsheet_id,
+                    includeGridData=False,
+                    fields=SHEET_METADATA_FIELDS,
+                )
+                .execute()
+            )
+        except Exception as error:
+            raise SheetsAdapterError(f"Google Sheet 工作表清單讀取失敗：{error}") from error
+
+    def _get_structure(self, spreadsheet_id: str, ranges: list[str] | None = None) -> dict:
+        try:
+            arguments = {
+                "spreadsheetId": spreadsheet_id,
+                "includeGridData": True,
+                "fields": GRID_FIELDS,
+            }
+            if ranges is not None:
+                arguments["ranges"] = ranges
+            return self._service.spreadsheets().get(**arguments).execute()
+        except Exception as error:
+            raise SheetsAdapterError(f"Google Sheet 讀取失敗：{error}") from error
+
+    @staticmethod
+    def _quote_sheet_name(title: str) -> str:
+        return "'" + title.replace("'", "''") + "'"

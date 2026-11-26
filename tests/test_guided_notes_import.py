@@ -136,10 +136,133 @@ def test_failed_reimport_reports_worksheet_and_position_and_preserves_previous_q
     assert response.get_json()["error"] == "sheet_structure_invalid"
     assert "工作表「Ambiguous Notes」A3" in response.get_json()["message"]
     with app.app_context():
-        questions = get_db().execute(
+        database = get_db()
+        questions = database.execute(
             "SELECT question_number FROM questions ORDER BY position"
         ).fetchall()
+        activity = database.execute(
+            "SELECT source_url, source_spreadsheet_id, source_structure_json FROM activities "
+            "WHERE code = ?",
+            (code,),
+        ).fetchone()
     assert [row["question_number"] for row in questions] == ["Q1"]
+    assert activity["source_url"] == "fake://initial"
+    assert activity["source_spreadsheet_id"] == "first"
+    assert json.loads(activity["source_structure_json"])["worksheet_id"] == "41"
+
+
+def test_import_uses_first_matching_worksheet_and_ignores_later_candidates(import_context):
+    _app, client, adapter, code = import_context
+    adapter.register(
+        "fake://multi-sheet",
+        SpreadsheetStructure(
+            "multi-sheet",
+            [
+                WorksheetGrid("1", "說明", [["請先閱讀說明"]]),
+                WorksheetGrid("2", "學習單", [["題號", "作答"], ["1", None]]),
+                WorksheetGrid("3", "其他題目", [["題號", "作答"], ["9", None]]),
+            ],
+        ),
+    )
+
+    response = client.post(
+        f"/api/activities/{code}/import", json={"sheet_url": "fake://multi-sheet"}
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["worksheet_id"] == "2"
+    assert [row["question_number"] for row in response.get_json()["questions"]] == ["1"]
+
+
+def test_import_does_not_fall_back_after_first_candidate_fails(import_context):
+    _app, client, adapter, code = import_context
+    adapter.register(
+        "fake://multi-sheet-invalid",
+        SpreadsheetStructure(
+            "multi-sheet-invalid",
+            [
+                WorksheetGrid(
+                    "2",
+                    "第一份學習單",
+                    [["題號", "作答"], ["1", None], [None, "無法歸屬"]],
+                ),
+                WorksheetGrid("3", "第二份學習單", [["題號", "作答"], ["9", None]]),
+            ],
+        ),
+    )
+
+    response = client.post(
+        f"/api/activities/{code}/import",
+        json={"sheet_url": "fake://multi-sheet-invalid"},
+    )
+
+    assert response.status_code == 400
+    assert "第一份學習單" in response.get_json()["message"]
+    assert "A3" in response.get_json()["message"]
+
+
+def test_import_with_gid_reads_only_the_requested_worksheet(import_context):
+    _app, client, adapter, code = import_context
+    adapter.register(
+        "fake://gid-sheet?gid=3",
+        SpreadsheetStructure(
+            "gid-sheet",
+            [
+                WorksheetGrid("2", "沒有標題", [["封面"]]),
+                WorksheetGrid("3", "指定學習單", [["題號", "作答"], ["3", None]]),
+                WorksheetGrid("4", "其他學習單", [["題號", "作答"], ["4", None]]),
+            ],
+        ),
+    )
+
+    response = client.post(
+        f"/api/activities/{code}/import", json={"sheet_url": "fake://gid-sheet?gid=3"}
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["worksheet_id"] == "3"
+    assert [row["question_number"] for row in response.get_json()["questions"]] == ["3"]
+
+
+def test_import_rejects_gid_that_does_not_exist_with_clear_error(import_context):
+    _app, client, adapter, code = import_context
+    adapter.register(
+        "fake://missing-gid?gid=999",
+        SpreadsheetStructure(
+            "missing-gid",
+            [WorksheetGrid("3", "學習單", [["題號", "作答"], ["3", None]])],
+        ),
+    )
+
+    response = client.post(
+        f"/api/activities/{code}/import",
+        json={"sheet_url": "fake://missing-gid?gid=999"},
+    )
+
+    assert response.status_code == 502
+    assert "fake worksheet not found: 999" in response.get_json()["message"]
+
+
+def test_import_with_gid_without_headers_does_not_scan_other_worksheets(import_context):
+    _app, client, adapter, code = import_context
+    adapter.register(
+        "fake://gid-no-headers?gid=2",
+        SpreadsheetStructure(
+            "gid-no-headers",
+            [
+                WorksheetGrid("2", "指定說明頁", [["這一頁沒有題號或作答標題"]]),
+                WorksheetGrid("3", "其他學習單", [["題號", "作答"], ["3", None]]),
+            ],
+        ),
+    )
+
+    response = client.post(
+        f"/api/activities/{code}/import",
+        json={"sheet_url": "fake://gid-no-headers?gid=2"},
+    )
+
+    assert response.status_code == 400
+    assert "找不到「題號」與「作答」標題" in response.get_json()["message"]
 
 
 def test_import_is_rejected_outside_preparation_without_reading_sheet(import_context):

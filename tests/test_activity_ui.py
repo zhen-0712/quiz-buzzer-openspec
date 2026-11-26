@@ -118,6 +118,17 @@ def test_student_join_page_exposes_configured_group_range(app):
     assert page.headers["Cache-Control"] == "no-store"
 
 
+def test_student_script_captures_drafts_and_reenables_the_current_form():
+    javascript = (ROOT / "quiz_buzzer" / "static" / "js" / "app.js").read_text(encoding="utf-8")
+
+    assert "function captureStudentDrafts()" in javascript
+    assert "answerDrafts.set(" in javascript
+    assert "answerDrafts.delete(questionNumber)" in javascript
+    assert "candidate.dataset.questionNumber === questionNumber" in javascript
+    assert "if (currentButton) currentButton.disabled = false;" in javascript
+    assert 'await poll();' in javascript
+
+
 def test_fake_sheets_end_to_end_flow_and_utf8_answers_are_preserved(app):
     teacher = app.test_client()
     code = _create_activity(teacher, group_count=2)
@@ -196,8 +207,15 @@ def test_fake_sheets_end_to_end_flow_and_utf8_answers_are_preserved(app):
     assert "中文重送一" not in str(result_b)
     assert "中文初答一" not in str(result_a)
     teacher_ended = teacher.get(f"/api/activities/{code}/quiz").get_json()
-    assert len(teacher_ended["submissions"]) == 3
+    assert len(teacher_ended["submissions"]) == 2
     assert len(teacher_ended["current_submissions"]) == 2
+    assert {row["answers"][0] for row in teacher_ended["submissions"]} == {
+        "勝出答案一",
+        "中文重送一",
+    }
+    with app.app_context():
+        history_count = get_db().execute("SELECT COUNT(*) FROM submissions").fetchone()[0]
+    assert history_count == 3
     assert page.status_code == 200
 
 

@@ -68,29 +68,16 @@ class SheetParseError(ValueError):
 
 
 def parse_guided_notes(structure: SpreadsheetStructure) -> ParsedGuidedNotes:
-    candidates: list[tuple[WorksheetGrid, int, int, int]] = []
+    candidates: list[WorksheetGrid] = []
     partial_headers: list[tuple[WorksheetGrid, int, int, str]] = []
 
     for worksheet in structure.worksheets:
         for row_index, row in enumerate(worksheet.values):
             question_columns = [i for i, value in enumerate(row) if _header_text(value) == "題號"]
             answer_columns = [i for i, value in enumerate(row) if _header_text(value) == "作答"]
-            if len(question_columns) > 1:
-                raise SheetParseError(
-                    worksheet.title,
-                    _a1(row_index, question_columns[1]),
-                    "「題號」標題重複，無法唯一判讀",
-                )
-            if len(answer_columns) > 1:
-                raise SheetParseError(
-                    worksheet.title,
-                    _a1(row_index, answer_columns[1]),
-                    "「作答」標題重複，無法唯一判讀",
-                )
             if question_columns and answer_columns:
-                candidates.append(
-                    (worksheet, row_index, question_columns[0], answer_columns[0])
-                )
+                if worksheet not in candidates:
+                    candidates.append(worksheet)
             elif question_columns:
                 partial_headers.append(
                     (worksheet, row_index, question_columns[0], "找不到同列的「作答」標題")
@@ -100,13 +87,6 @@ def parse_guided_notes(structure: SpreadsheetStructure) -> ParsedGuidedNotes:
                     (worksheet, row_index, answer_columns[0], "找不到同列的「題號」標題")
                 )
 
-    if len(candidates) > 1:
-        worksheet, row_index, question_column, _answer_column = candidates[1]
-        raise SheetParseError(
-            worksheet.title,
-            _a1(row_index, question_column),
-            "找到多個可能的「題號／作答」標題列，無法唯一判讀",
-        )
     if not candidates:
         if partial_headers:
             worksheet, row_index, column_index, reason = partial_headers[0]
@@ -114,7 +94,35 @@ def parse_guided_notes(structure: SpreadsheetStructure) -> ParsedGuidedNotes:
         worksheet_title = structure.worksheets[0].title if structure.worksheets else "（無工作表）"
         raise SheetParseError(worksheet_title, "標題列", "找不到「題號」與「作答」標題")
 
-    worksheet, header_row, question_column, answer_column = candidates[0]
+    worksheet = candidates[0]
+    header_rows = []
+    for row_index, row in enumerate(worksheet.values):
+        question_columns = [i for i, value in enumerate(row) if _header_text(value) == "題號"]
+        answer_columns = [i for i, value in enumerate(row) if _header_text(value) == "作答"]
+        if question_columns and answer_columns:
+            header_rows.append((row_index, question_columns, answer_columns))
+    if len(header_rows) > 1:
+        row_index, question_columns, _answer_columns = header_rows[1]
+        raise SheetParseError(
+            worksheet.title,
+            _a1(row_index, question_columns[0]),
+            "找到多個可能的「題號／作答」標題列，無法唯一判讀",
+        )
+    header_row, question_columns, answer_columns = header_rows[0]
+    if len(question_columns) > 1:
+        raise SheetParseError(
+            worksheet.title,
+            _a1(header_row, question_columns[1]),
+            "「題號」標題重複，無法唯一判讀",
+        )
+    if len(answer_columns) > 1:
+        raise SheetParseError(
+            worksheet.title,
+            _a1(header_row, answer_columns[1]),
+            "「作答」標題重複，無法唯一判讀",
+        )
+    question_column = question_columns[0]
+    answer_column = answer_columns[0]
     questions = _parse_question_rows(
         worksheet, header_row, question_column, answer_column
     )
@@ -141,6 +149,9 @@ def _parse_question_rows(
     questions: dict[str, list[ParsedBlank]] = {}
     question_order: list[str] = []
     answer_anchor_owner: dict[tuple[int, int], str] = {}
+    first_question_locations: dict[str, str] = {}
+    current_question: str | None = None
+    current_question_row: int | None = None
 
     for row_index in range(header_row + 1, last_row):
         question_value = _cell_value(worksheet, row_index, question_column)
@@ -168,7 +179,30 @@ def _parse_question_rows(
                     _a1(row_index, question_column),
                     "此資料列無法唯一歸屬題號（題號空白且未合併）",
                 )
+            current_question = None
+            current_question_row = None
             continue
+
+        location = _a1(
+            question_merge.start_row_index if question_merge else row_index,
+            question_merge.start_column_index if question_merge else question_column,
+        )
+        if question_number in first_question_locations:
+            same_contiguous_block = (
+                current_question == question_number
+                and current_question_row == row_index - 1
+            )
+            if not same_contiguous_block:
+                raise SheetParseError(
+                    worksheet.title,
+                    location,
+                    f"題號「{question_number}」重複；首次位置 "
+                    f"{first_question_locations[question_number]}，再次位置 {location}",
+                )
+        else:
+            first_question_locations[question_number] = location
+        current_question = question_number
+        current_question_row = row_index
 
         if question_number not in questions:
             questions[question_number] = []

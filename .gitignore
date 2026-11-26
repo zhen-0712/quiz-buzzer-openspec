@@ -11,6 +11,7 @@ client_secret*.json
 *.sqlite3
 *.sqlite3-*
 *.sqlite-*
+/貼上視窗 A 的資料庫路徑
 /instance/
 /.credentials/
 /credentials/

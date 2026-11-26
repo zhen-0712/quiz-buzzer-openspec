@@ -159,6 +159,8 @@
     const resultGroup = document.querySelector("[data-result-group]");
     const importSection = document.querySelector("[data-import-section]");
     const submittingQuestions = new Set();
+    const answerDrafts = new Map();
+    const submissionFeedback = new Map();
     let lastSignature = "";
     let lastRole = "";
     let polling = false;
@@ -216,7 +218,7 @@
       const table = element("table", "data-table");
       const head = element("thead");
       const headRow = element("tr");
-      for (const label of ["題號", "組別", "答案", "順位", ...(phase === "ended" ? ["提交狀態"] : [])]) {
+      for (const label of ["題號", "組別", "答案", "順位"]) {
         headRow.append(element("th", "", label));
       }
       head.append(headRow);
@@ -228,7 +230,6 @@
         tr.append(element("td", "", `第 ${row.group_number} 組`));
         tr.append(element("td", "", (row.answers || []).join("、")));
         tr.append(element("td", "", row.rank ? String(row.rank) : "—"));
-        if (phase === "ended") tr.append(element("td", "", row.is_effective ? "目前有效" : "已被重送取代"));
         body.append(tr);
       }
       table.append(body);
@@ -244,6 +245,7 @@
       resultGroup.textContent = String(quiz.group_number || "");
 
       if (quiz.phase === "active") {
+        captureStudentDrafts();
         const saved = new Map((quiz.submissions || []).map((item) => [item.question_number, item]));
         studentQuestions.replaceChildren();
         for (const question of quiz.questions || []) {
@@ -270,9 +272,17 @@
             input.dataset.answerInput = "true";
             input.dataset.position = String(index + 1);
             input.setAttribute("aria-label", `題號 ${question.question_number} 第 ${index + 1} 格答案`);
+            input.value = answerDrafts.get(question.question_number)?.[index] || "";
             field.append(input);
             form.append(field);
           }
+          form.addEventListener("input", () => {
+            answerDrafts.set(
+              question.question_number,
+              [...form.querySelectorAll("[data-answer-input]")].map((input) => input.value),
+            );
+            submissionFeedback.delete(question.question_number);
+          });
           const submit = element("button", "", submitted ? "重新送出整題答案" : "送出整題答案");
           submit.type = "submit";
           submit.disabled = submittingQuestions.has(question.question_number);
@@ -281,6 +291,8 @@
           formMessage.dataset.formMessage = "true";
           formMessage.setAttribute("role", "status");
           form.append(formMessage);
+          const feedback = submissionFeedback.get(question.question_number);
+          if (feedback) showMessage(formMessage, feedback.message, feedback.kind);
           form.addEventListener("submit", (event) => submitAnswers(event, form, question));
           card.append(form);
           studentQuestions.append(card);
@@ -307,6 +319,15 @@
       }
     }
 
+    function captureStudentDrafts() {
+      for (const form of studentQuestions.querySelectorAll("form[data-question-number]")) {
+        answerDrafts.set(
+          form.dataset.questionNumber,
+          [...form.querySelectorAll("[data-answer-input]")].map((input) => input.value),
+        );
+      }
+    }
+
     async function submitAnswers(event, form, question) {
       event.preventDefault();
       const questionNumber = question.question_number;
@@ -330,21 +351,38 @@
       const button = form.querySelector("button[type=submit]");
       button.disabled = true;
       showMessage(formMessage, "正在送出…");
+      let accepted = false;
       try {
         const result = await apiRequest(`/api/activities/${encodeURIComponent(code)}/submissions`, {
           method: "POST",
           body: JSON.stringify({ question_number: questionNumber, answers }),
         });
-        showMessage(formMessage, result.status || "已送出", "success");
-        await poll();
+        accepted = true;
+        answerDrafts.delete(questionNumber);
+        submissionFeedback.set(questionNumber, {
+          message: result.status || "已送出",
+          kind: "success",
+        });
       } catch (error) {
-        showMessage(formMessage, error.message, "error");
+        submissionFeedback.set(questionNumber, { message: error.message, kind: "error" });
         if (/階段|搶答中/.test(error.message)) showMessage(message, "階段已變更，答案未送出；正在更新畫面。", "error");
-        await poll();
       } finally {
         submittingQuestions.delete(questionNumber);
-        const currentButton = form.querySelector("button[type=submit]");
-        if (currentButton) currentButton.disabled = false;
+        const currentForm = [...studentQuestions.querySelectorAll("form[data-question-number]")]
+          .find((candidate) => candidate.dataset.questionNumber === questionNumber);
+        if (currentForm) {
+          const currentButton = currentForm.querySelector("button[type=submit]");
+          if (currentButton) currentButton.disabled = false;
+          if (accepted) {
+            for (const input of currentForm.querySelectorAll("[data-answer-input]")) {
+              input.value = "";
+            }
+          }
+          const currentMessage = currentForm.querySelector("[data-form-message]");
+          const feedback = submissionFeedback.get(questionNumber);
+          if (feedback) showMessage(currentMessage, feedback.message, feedback.kind);
+        }
+        await poll();
       }
     }
 

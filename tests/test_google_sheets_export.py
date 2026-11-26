@@ -7,7 +7,7 @@ import pytest
 
 from quiz_buzzer import create_app
 from quiz_buzzer.sheets.google_adapter import GoogleSheetsAdapter
-from quiz_buzzer.sheets.models import MergedRange, SheetsAdapterError
+from quiz_buzzer.sheets.models import MergedRange, SheetsAdapterError, WorksheetGrid
 from tests.fakes import MemorySheetsAdapter
 from tests.workbook_fixtures import load_xlsx_as_sheet_structure
 
@@ -24,8 +24,9 @@ class FailingWriteAdapter(MemorySheetsAdapter):
 
 
 class FailingReadAdapter(MemorySheetsAdapter):
-    def read_structure(self, sheet_url):
+    def read_structure(self, sheet_url, worksheet_id=None):
         self.read_calls.append(sheet_url)
+        self.worksheet_read_calls.append((sheet_url, worksheet_id))
         raise RuntimeError("fake read failure")
 
 
@@ -182,6 +183,36 @@ def test_export_reparses_snapshot_and_writes_only_winners_in_blank_order_repeate
         (q3.blanks[0].row_index, q3.blanks[0].column_index, "單題中文答案"),
     ]
     assert adapter.write_calls[1] == adapter.write_calls[0]
+
+
+def test_export_rechecks_only_the_worksheet_recorded_at_import(app):
+    code, teacher, _group_a, _group_b, adapter = _setup(app, phase="ended")
+    structure = adapter.sources[SHEET_URL]
+    imported_worksheet_id = structure.worksheets[0].worksheet_id
+    structure.worksheets.append(
+        WorksheetGrid("999", "Later matching sheet", [["題號", "作答"], ["9", None]])
+    )
+
+    response = _export(teacher, code)
+
+    assert response.status_code == 200
+    assert adapter.worksheet_read_calls[-1] == (SHEET_URL, imported_worksheet_id)
+    assert adapter.write_calls == []
+
+
+def test_export_aborts_when_recorded_worksheet_is_missing_without_fallback(app):
+    code, teacher, _group_a, _group_b, adapter = _setup(app, phase="ended")
+    structure = adapter.sources[SHEET_URL]
+    structure.worksheets.append(
+        WorksheetGrid("999", "Fallback candidate", [["題號", "作答"], ["9", None]])
+    )
+    structure.worksheets[:] = [worksheet for worksheet in structure.worksheets if worksheet.worksheet_id != "1"]
+
+    response = _export(teacher, code)
+
+    assert response.status_code == 502
+    assert "fake worksheet not found: 1" in response.get_json()["message"]
+    assert adapter.write_calls == []
 
 
 @pytest.mark.parametrize(

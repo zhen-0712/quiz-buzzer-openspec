@@ -152,11 +152,10 @@ def get_quiz_view(
 
     all_rows = _all_submission_views(connection, activity_id)
     if is_teacher:
+        effective_rows = [row for row in all_rows if row["is_effective"]]
         response["questions"] = _question_summaries(questions)
-        response["submissions"] = all_rows
-        response["current_submissions"] = [
-            row for row in all_rows if row["is_effective"]
-        ]
+        response["submissions"] = effective_rows
+        response["current_submissions"] = effective_rows
         return response
 
     response["group_number"] = group_number
