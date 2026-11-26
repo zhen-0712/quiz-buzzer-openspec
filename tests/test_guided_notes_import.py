@@ -201,7 +201,7 @@ def test_import_does_not_fall_back_after_first_candidate_fails(import_context):
     assert "A3" in response.get_json()["message"]
 
 
-def test_import_with_gid_reads_only_the_requested_worksheet(import_context):
+def test_import_ignores_gid_and_uses_first_matching_worksheet(import_context):
     _app, client, adapter, code = import_context
     adapter.register(
         "fake://gid-sheet?gid=3",
@@ -209,7 +209,7 @@ def test_import_with_gid_reads_only_the_requested_worksheet(import_context):
             "gid-sheet",
             [
                 WorksheetGrid("2", "沒有標題", [["封面"]]),
-                WorksheetGrid("3", "指定學習單", [["題號", "作答"], ["3", None]]),
+                WorksheetGrid("3", "第一份學習單", [["題號", "作答"], ["3", None]]),
                 WorksheetGrid("4", "其他學習單", [["題號", "作答"], ["4", None]]),
             ],
         ),
@@ -224,7 +224,7 @@ def test_import_with_gid_reads_only_the_requested_worksheet(import_context):
     assert [row["question_number"] for row in response.get_json()["questions"]] == ["3"]
 
 
-def test_import_rejects_gid_that_does_not_exist_with_clear_error(import_context):
+def test_import_with_gid_url_still_uses_first_matching_worksheet(import_context):
     _app, client, adapter, code = import_context
     adapter.register(
         "fake://missing-gid?gid=999",
@@ -239,11 +239,12 @@ def test_import_rejects_gid_that_does_not_exist_with_clear_error(import_context)
         json={"sheet_url": "fake://missing-gid?gid=999"},
     )
 
-    assert response.status_code == 502
-    assert "fake worksheet not found: 999" in response.get_json()["message"]
+    assert response.status_code == 200
+    assert response.get_json()["worksheet_id"] == "3"
+    assert [row["question_number"] for row in response.get_json()["questions"]] == ["3"]
 
 
-def test_import_with_gid_without_headers_does_not_scan_other_worksheets(import_context):
+def test_import_with_gid_url_still_skips_headerless_sheet_in_order(import_context):
     _app, client, adapter, code = import_context
     adapter.register(
         "fake://gid-no-headers?gid=2",
@@ -261,8 +262,8 @@ def test_import_with_gid_without_headers_does_not_scan_other_worksheets(import_c
         json={"sheet_url": "fake://gid-no-headers?gid=2"},
     )
 
-    assert response.status_code == 400
-    assert "找不到「題號」與「作答」標題" in response.get_json()["message"]
+    assert response.status_code == 200
+    assert response.get_json()["worksheet_id"] == "3"
 
 
 def test_import_is_rejected_outside_preparation_without_reading_sheet(import_context):

@@ -1,8 +1,6 @@
 """Offline test doubles for the replaceable Google Sheets adapter."""
 
 from collections.abc import Sequence
-from urllib.parse import parse_qs, urlparse
-
 from quiz_buzzer.sheets.models import CellUpdate, SpreadsheetStructure
 
 
@@ -25,20 +23,15 @@ class MemorySheetsAdapter:
             structure = self.sources[sheet_url]
         except KeyError as error:
             raise RuntimeError("fake sheet is not registered") from error
-        parsed = urlparse(sheet_url)
-        requested_gid = (parse_qs(parsed.query).get("gid") or parse_qs(parsed.fragment).get("gid") or [None])[0]
-        if requested_gid is not None and worksheet_id is not None and requested_gid != str(worksheet_id):
-            raise RuntimeError("fake gid conflicts with requested worksheet")
-        selected_id = requested_gid if requested_gid is not None else worksheet_id
-        if selected_id is None:
+        if worksheet_id is None:
             return structure
         worksheets = [
             worksheet
             for worksheet in structure.worksheets
-            if worksheet.worksheet_id == str(selected_id)
+            if worksheet.worksheet_id == str(worksheet_id)
         ]
         if not worksheets:
-            raise RuntimeError(f"fake worksheet not found: {selected_id}")
+            raise RuntimeError(f"fake worksheet not found: {worksheet_id}")
         return SpreadsheetStructure(structure.spreadsheet_id, worksheets)
 
     def write_answers(self, spreadsheet_id: str, updates: Sequence[CellUpdate]) -> None:

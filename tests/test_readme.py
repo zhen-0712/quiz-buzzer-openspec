@@ -54,7 +54,11 @@ def test_readme_documents_export_backup_and_csv_row_convention():
     assert "重新讀取 Sheet" in readme
     assert "UTF-8 BOM" in readme
     assert "每個填空各佔一列" in readme
-    assert "只包含各題勝出組的答案" in readme
+    assert "CSV 只包含勝出組答案" in readme
+    assert "填空序號" in readme
+    assert "CRLF" in readme
+    assert "答案欄前加單引號" in readme
+    assert "整份中止" in readme
 
 
 def test_readme_documents_sheet_selection_latest_results_and_student_draft_check():
@@ -62,9 +66,9 @@ def test_readme_documents_sheet_selection_latest_results_and_student_draft_check
 
     for phrase in (
         "第一個同時有兩個標題的工作表",
-        "網址片段 `#gid=<工作表 ID>`",
+        "網址中的 `gid` 不影響選頁",
         "不會改用後面的工作表",
-        "匯入時選定的工作表 ID",
+        "匯入時保存的工作表 ID",
         "非相鄰題號區塊再次出現",
         "每組每題最新有效答案",
         "學生作答草稿與重送手動驗證",
@@ -79,8 +83,8 @@ def test_acceptance_matrix_maps_align_and_fix_regressions():
     for test_name in (
         "test_parser_skips_headerless_sheets_and_uses_first_matching_sheet",
         "test_parser_rejects_non_adjacent_repeated_question_number_with_both_locations",
-        "test_google_adapter_reads_all_worksheets_when_no_gid_is_selected",
-        "test_import_with_gid_without_headers_does_not_scan_other_worksheets",
+        "test_google_adapter_ignores_url_gid_and_reads_worksheets_in_sheet_order",
+        "test_import_with_gid_url_still_uses_first_matching_worksheet",
         "test_identical_resubmission_gets_new_sequence_and_changes_rank",
         "test_export_rechecks_only_the_worksheet_recorded_at_import",
         "test_student_script_captures_drafts_and_reenables_the_current_form",

@@ -3,27 +3,15 @@
 ## MODIFIED Requirements
 
 ### Requirement: Read the linked online Google Sheet
-系統 MUST 接受 Google Sheet 連結並直接讀取線上結構，不得要求下載 xlsx 作為匯入來源。未指定工作表時，系統 MUST 依 Google Sheets 工作表順序略過沒有同一列「題號」與「作答」標題的工作表，並選取第一個同時具備兩標題的工作表。連結含 `gid` 時，系統 MUST 只讀取該工作表。選定工作表後解析失敗時 MUST 回報錯誤，不得改用後續工作表。
+系統 MUST 接受 Google Sheet 連結並直接讀取線上結構，不得要求下載 xlsx 作為匯入來源。無論連結是否帶 `gid`，系統 MUST 依 Google Sheets 工作表順序略過沒有同一列「題號」與「作答」標題的工作表，並選取第一個同時具備兩標題的工作表。選定工作表後解析失敗時 MUST 回報錯誤，不得改用後續工作表；後續工作表即使也符合標題條件也 MUST 忽略。
 
 #### Scenario: Skip non-template worksheets and select the first matching worksheet
-- **WHEN** Sheet 依序包含說明頁、第一個含完整標題列的工作表、以及另一個也含完整標題列的工作表
+- **WHEN** Sheet 依序包含無標題說明頁、第一個含完整標題列的工作表、以及另一個也含完整標題列的工作表
 - **THEN** 系統略過說明頁，只解析第一個符合的工作表，並忽略後續候選工作表
 
 #### Scenario: Read an accessible Google Sheet
-- **WHEN** 老師提供可存取且至少一個工作表含完整標題列的 Google Sheet 連結
-- **THEN** 系統依工作表順序選定第一個符合的工作表並開始解析
-
-#### Scenario: Read only the worksheet specified by gid
-- **WHEN** 老師提供含 `gid` 的 Sheet 連結
-- **THEN** 系統只讀取及解析該 ID 的工作表，不掃描其他工作表作為替代
-
-#### Scenario: Reject a gid that does not identify a worksheet
-- **WHEN** 老師提供的 `gid` 不存在於該 Google Sheet
-- **THEN** 系統拒絕匯入並顯示明確的工作表識別錯誤
-
-#### Scenario: Do not scan other worksheets when the gid worksheet has no complete headers
-- **WHEN** `gid` 指定的工作表沒有同一列完整「題號／作答」標題，而其他工作表有完整標題
-- **THEN** 系統拒絕匯入並回報找不到可用標題，不掃描或改用其他工作表
+- **WHEN** 老師提供可存取且至少一個工作表含完整標題列的連結，不論網址是否帶 `gid`
+- **THEN** 系統都依工作表順序選定第一個符合的工作表並開始解析
 
 #### Scenario: Do not fall back when the selected worksheet is invalid
 - **WHEN** 第一個含完整標題列的工作表有無法唯一判讀的題號或填空，而後續工作表可解析

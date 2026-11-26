@@ -96,38 +96,28 @@ def metadata():
     }
 
 
-def test_google_adapter_contract_reads_grid_values_and_merged_ranges(metadata):
+def test_google_adapter_ignores_url_gid_and_reads_worksheets_in_sheet_order(metadata):
     service = FakeGoogleService(metadata)
     adapter = GoogleSheetsAdapter(service)
 
     structure = adapter.read_structure(
-        "https://docs.google.com/spreadsheets/d/abc-123/edit#gid=77"
+        "https://docs.google.com/spreadsheets/d/abc-123/edit#gid=999"
     )
 
     assert structure.spreadsheet_id == "abc-123"
-    assert len(structure.worksheets) == 1
+    assert [sheet.worksheet_id for sheet in structure.worksheets] == ["77", "88"]
     worksheet = structure.worksheets[0]
     assert worksheet.worksheet_id == "77"
     assert worksheet.title == "Guided Notes"
     assert worksheet.values[3][1:3] == ["題號", "作答"]
     assert worksheet.values[4][1] == "1"
     assert worksheet.merged_ranges[0].end_row_index == 6
-    assert service.resource.get_calls == [
-        {
-            "spreadsheetId": "abc-123",
-            "includeGridData": False,
-            "fields": "spreadsheetId,sheets(properties(sheetId,title))",
-        },
-        {
-            "spreadsheetId": "abc-123",
-            "includeGridData": True,
-            "fields": GRID_FIELDS,
-            "ranges": ["'Guided Notes'"],
-        },
-    ]
+    assert service.resource.get_calls == [{
+        "spreadsheetId": "abc-123", "includeGridData": True, "fields": GRID_FIELDS
+    }]
 
 
-def test_google_adapter_reads_all_worksheets_when_no_gid_is_selected(metadata):
+def test_google_adapter_reads_all_worksheets_in_order_without_gid(metadata):
     service = FakeGoogleService(metadata)
     adapter = GoogleSheetsAdapter(service)
 
@@ -141,17 +131,6 @@ def test_google_adapter_reads_all_worksheets_when_no_gid_is_selected(metadata):
             "fields": GRID_FIELDS,
         }
     ]
-
-
-def test_google_adapter_rejects_unknown_gid_after_metadata_without_grid_read(metadata):
-    service = FakeGoogleService(metadata)
-    adapter = GoogleSheetsAdapter(service)
-
-    with pytest.raises(SheetsAdapterError, match="gid=999"):
-        adapter.read_structure("https://docs.google.com/spreadsheets/d/abc-123/edit?gid=999")
-
-    assert len(service.resource.get_calls) == 1
-    assert service.resource.get_calls[0]["includeGridData"] is False
 
 
 def test_google_adapter_contract_writes_text_to_requested_coordinates(metadata):
@@ -186,15 +165,6 @@ def test_google_adapter_rejects_invalid_urls_before_calling_service(metadata):
     assert service.resource.get_args is None
 
 
-def test_google_adapter_rejects_unknown_gid(metadata):
-    adapter = GoogleSheetsAdapter(FakeGoogleService(metadata))
-
-    with pytest.raises(SheetsAdapterError, match="gid=999"):
-        adapter.read_structure(
-            "https://docs.google.com/spreadsheets/d/abc-123/edit?gid=999"
-        )
-
-
 def test_google_adapter_can_read_only_the_recorded_worksheet(metadata):
     service = FakeGoogleService(metadata)
     adapter = GoogleSheetsAdapter(service)
@@ -216,14 +186,13 @@ def test_google_adapter_rejects_missing_recorded_worksheet(metadata):
         )
 
 
-def test_google_adapter_rejects_gid_conflicting_with_recorded_worksheet(metadata):
+def test_google_adapter_uses_recorded_worksheet_id_even_if_url_has_gid(metadata):
     service = FakeGoogleService(metadata)
     adapter = GoogleSheetsAdapter(service)
 
-    with pytest.raises(SheetsAdapterError, match="gid=77.*88"):
-        adapter.read_structure(
-            "https://docs.google.com/spreadsheets/d/abc-123/edit#gid=77",
-            worksheet_id="88",
-        )
-
-    assert service.resource.get_args is None
+    structure = adapter.read_structure(
+        "https://docs.google.com/spreadsheets/d/abc-123/edit#gid=77",
+        worksheet_id="88",
+    )
+    assert [sheet.worksheet_id for sheet in structure.worksheets] == ["88"]
+    assert service.resource.get_calls[-1]["ranges"] == ["'Other'"]

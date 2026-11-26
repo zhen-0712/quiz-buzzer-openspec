@@ -1,7 +1,5 @@
 """Verified Google Sheets export and winner-only CSV serialization."""
 
-import csv
-import io
 import json
 import sqlite3
 
@@ -49,9 +47,25 @@ def export_ended_activity(
         raise ActivityError(f"重新讀取原 Google Sheet 失敗：{error}", 502, "export_read_failed") from error
 
     actual = parsed.structure_snapshot()
-    difference = _snapshot_difference(expected, actual, activity["source_spreadsheet_id"])
-    if difference:
-        raise ActivityError(f"匯出已中止：{difference}", 409, "export_structure_changed")
+    differences = _snapshot_differences(expected, actual, activity["source_spreadsheet_id"])
+
+    local_mismatches = []
+    for question in connection.execute(
+        "SELECT id, question_number, answer_count FROM questions "
+        "WHERE activity_id = ? ORDER BY position",
+        (activity_id,),
+    ).fetchall():
+        cell_count = connection.execute(
+            "SELECT COUNT(*) FROM answer_cells WHERE question_id = ?",
+            (question["id"],),
+        ).fetchone()[0]
+        if cell_count != question["answer_count"]:
+            local_mismatches.append(
+                f"第 {question['question_number']} 題本機填空格數與匯入資料不一致"
+            )
+    if differences or local_mismatches:
+        details = differences + local_mismatches
+        raise ActivityError(f"匯出已中止：{'；'.join(details)}", 409, "export_structure_changed")
 
     winners = get_winning_submissions(connection, activity_id)
     updates: list[CellUpdate] = []
@@ -61,12 +75,6 @@ def export_ended_activity(
             "WHERE question_id = ? ORDER BY position",
             (winner["question_id"],),
         ).fetchall()
-        if len(cells) != len(winner["answers"]):
-            raise ActivityError(
-                f"第 {winner['question_number']} 題答案格數與匯入資料不一致，已中止匯出",
-                409,
-                "export_local_structure_invalid",
-            )
         updates.extend(
             CellUpdate(
                 worksheet_id=cell["worksheet_id"],
@@ -137,25 +145,40 @@ def get_winning_submissions(connection: sqlite3.Connection, activity_id: int) ->
 
 
 def build_winner_csv(connection: sqlite3.Connection, activity_id: int) -> str:
-    output = io.StringIO(newline="")
-    writer = csv.writer(output, lineterminator="\r\n", quoting=csv.QUOTE_MINIMAL)
-    writer.writerow(["題號", "組別", "答案", "搶答順位"])
+    rows = [_csv_row(["題號", "組別", "填空序號", "答案", "搶答順位"])]
     for winner in get_winning_submissions(connection, activity_id):
-        for answer in winner["answers"]:
-            writer.writerow(
-                [
-                    winner["question_number"],
-                    winner["group_number"],
-                    answer,
-                    winner["rank"],
-                ]
+        for blank_index, answer in enumerate(winner["answers"], start=1):
+            if answer.startswith(("=", "+", "-", "@", "\t", "\r", "\n")):
+                answer = "'" + answer
+            rows.append(
+                _csv_row(
+                    [
+                        winner["question_number"],
+                        winner["group_number"],
+                        blank_index,
+                        answer,
+                        winner["rank"],
+                    ]
+                )
             )
-    return "\ufeff" + output.getvalue()
+    return "\ufeff" + "\r\n".join(rows) + "\r\n"
 
 
-def _snapshot_difference(expected: dict, actual: dict, expected_source_id: str) -> str | None:
+def _csv_row(values: list[object]) -> str:
+    """Serialize one RFC 4180 row, quoting delimiters and CSV control characters."""
+    fields = []
+    for value in values:
+        text = str(value)
+        if any(character in text for character in (",", '"', "\r", "\n", "\t")):
+            text = '"' + text.replace('"', '""') + '"'
+        fields.append(text)
+    return ",".join(fields)
+
+
+def _snapshot_differences(expected: dict, actual: dict, expected_source_id: str) -> list[str]:
+    differences = []
     if expected_source_id != actual.get("spreadsheet_id"):
-        return "Google Sheet 來源識別碼與匯入時不同"
+        differences.append("Google Sheet 來源識別碼與匯入時不同")
     for field, label in (
         ("worksheet_id", "工作表識別碼"),
         ("worksheet_title", "工作表名稱"),
@@ -164,25 +187,39 @@ def _snapshot_difference(expected: dict, actual: dict, expected_source_id: str) 
         ("answer_column_index", "作答欄位置"),
     ):
         if expected.get(field) != actual.get(field):
-            return f"{label}與匯入時不同"
+            differences.append(f"{label}與匯入時不同")
 
     before_questions = expected.get("questions", [])
     after_questions = actual.get("questions", [])
     before_numbers = [item.get("question_number") for item in before_questions]
     after_numbers = [item.get("question_number") for item in after_questions]
-    if before_numbers != after_numbers:
-        return "題號或題目順序與匯入時不同"
-    for before, after in zip(before_questions, after_questions, strict=True):
-        number = before.get("question_number")
-        if before.get("position") != after.get("position"):
-            return f"第 {number} 題的題目順序與匯入時不同"
-        before_blanks = before.get("blanks", [])
-        after_blanks = after.get("blanks", [])
-        if len(before_blanks) != len(after_blanks):
-            return f"第 {number} 題的填空數與匯入時不同"
-        for blank_before, blank_after in zip(before_blanks, after_blanks, strict=True):
-            if blank_before != blank_after:
-                return f"第 {number} 題的填空順序或儲存格位置與匯入時不同"
+    before_by_number = {item.get("question_number"): item for item in before_questions}
+    after_by_number = {item.get("question_number"): item for item in after_questions}
+    changed_questions = []
+    for number in dict.fromkeys(before_numbers + after_numbers):
+        before = before_by_number.get(number)
+        after = after_by_number.get(number)
+        reasons = []
+        if before is None:
+            reasons.append("新增題號")
+        elif after is None:
+            reasons.append("題號已不存在")
+        else:
+            if before.get("position") != after.get("position"):
+                reasons.append("題目順序不同")
+            before_blanks = before.get("blanks", [])
+            after_blanks = after.get("blanks", [])
+            if len(before_blanks) != len(after_blanks):
+                reasons.append("填空數不同")
+            elif before_blanks != after_blanks:
+                reasons.append("填空順序或儲存格位置不同")
+        if reasons:
+            changed_questions.append(f"第 {number} 題（{'、'.join(reasons)}）")
+    if before_numbers != after_numbers and not changed_questions:
+        changed_questions = [f"第 {number} 題（題目順序不同）" for number in before_numbers]
+    if changed_questions:
+        differences.append("結構有問題的題號：" + "、".join(changed_questions))
     if expected != actual:
-        return "題目結構快照與匯入時不同"
-    return None
+        if not changed_questions and not any("題號" in item or "題目順序" in item for item in differences):
+            differences.append("題目結構快照與匯入時不同")
+    return differences

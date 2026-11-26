@@ -129,6 +129,18 @@ def test_student_script_captures_drafts_and_reenables_the_current_form():
     assert 'await poll();' in javascript
 
 
+def test_teacher_monitor_collapses_data_in_dom_and_preserves_toggle_state():
+    javascript = (ROOT / "quiz_buzzer" / "static" / "js" / "app.js").read_text(encoding="utf-8")
+
+    assert "let monitorExpanded = false;" in javascript
+    assert 'if (phase === "ended") monitorExpanded = true;' in javascript
+    assert 'monitorExpanded ? "收起作答狀況" : "顯示作答狀況"' in javascript
+    assert 'if (!monitorExpanded) return;' in javascript
+    assert "renderTeacher(latestTeacherQuiz);" in javascript
+    assert 'if (status.role === "teacher") renderTeacher(quiz);' in javascript
+    assert "localStorage" not in javascript and "sessionStorage" not in javascript
+
+
 def test_fake_sheets_end_to_end_flow_and_utf8_answers_are_preserved(app):
     teacher = app.test_client()
     code = _create_activity(teacher, group_count=2)

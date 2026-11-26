@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from quiz_buzzer import create_app
+from quiz_buzzer.data.database import get_db
 from quiz_buzzer.sheets.google_adapter import GoogleSheetsAdapter
 from quiz_buzzer.sheets.models import MergedRange, SheetsAdapterError, WorksheetGrid
 from tests.fakes import MemorySheetsAdapter
@@ -219,9 +220,9 @@ def test_export_aborts_when_recorded_worksheet_is_missing_without_fallback(app):
     ("mutation", "reason"),
     [
         ("source", "來源識別碼"),
-        ("question_number", "題號或題目順序"),
+        ("question_number", "題號"),
         ("blank_count", "填空數"),
-        ("question_order", "題號或題目順序"),
+        ("question_order", "題目順序"),
         ("position", "位置"),
     ],
 )
@@ -236,6 +237,24 @@ def test_export_structure_differences_abort_before_any_write(app, mutation, reas
     assert response.get_json()["error"] == "export_structure_changed"
     assert reason in response.get_json()["message"]
     assert adapter.read_calls == [SHEET_URL]
+    assert adapter.write_calls == []
+
+
+def test_export_collects_every_affected_question_before_zero_write(app):
+    code, teacher, _group_a, _group_b, adapter = _setup(app, phase="ended")
+    changed = _mutate_source(adapter.sources[SHEET_URL], "question_number")
+    changed = _mutate_source(changed, "position")
+    adapter.sources[SHEET_URL] = changed
+
+    response = _export(teacher, code)
+
+    assert response.status_code == 409
+    message = response.get_json()["message"]
+    assert "第 1 題" in message
+    assert "第 Q1 題" in message
+    assert "第 2 題" in message
+    assert "第 3 題" in message
+    assert "第 4 題" in message
     assert adapter.write_calls == []
 
 
@@ -267,7 +286,7 @@ def test_export_write_failure_is_reported_as_failure_not_success(app):
     assert response.get_json().get("status") != "success"
 
 
-def test_csv_is_winner_only_utf8_bom_and_quotes_each_answer_row(app):
+def test_csv_is_winner_only_utf8_bom_crlf_and_one_row_per_blank(app):
     code, teacher, group_a, group_b, _adapter = _setup(app, phase="active")
     answers = ["逗號,答案", '引號"和換行\n第二行']
     _submit(group_a, code, "1", answers)
@@ -281,10 +300,101 @@ def test_csv_is_winner_only_utf8_bom_and_quotes_each_answer_row(app):
     assert "text/csv" in response.content_type
     rows = list(csv.reader(io.StringIO(response.data.decode("utf-8-sig"))))
     assert rows == [
-        ["題號", "組別", "答案", "搶答順位"],
-        ["1", "1", answers[0], "1"],
-        ["1", "1", answers[1], "1"],
+        ["題號", "組別", "填空序號", "答案", "搶答順位"],
+        ["1", "1", "1", answers[0], "1"],
+        ["1", "1", "2", answers[1], "1"],
     ]
+    assert b"\r\n" in response.data
+
+
+def test_csv_matches_joy_safety_fixture_exact_bytes(app):
+    import json
+    from quiz_buzzer.sheets.models import SpreadsheetStructure, WorksheetGrid
+
+    code, teacher, group, _group_b, adapter = _setup(app, import_sheet=False)
+    answers_path = ROOT / "tests" / "fixtures" / "csv_joy_answers.json"
+    entries = json.loads(answers_path.read_text(encoding="utf-8"))
+    url = "fake://joy-csv"
+    rows = [["題號", "作答"]]
+    for entry in entries:
+        rows.append([entry["question_number"], None])
+    adapter.register(url, SpreadsheetStructure("joy-csv", [WorksheetGrid("77", "Joy", rows)]))
+    assert teacher.post(f"/api/activities/{code}/import", json={"sheet_url": url}).status_code == 200
+    assert teacher.post(f"/api/activities/{code}/phase", json={"phase": "active"}).status_code == 200
+    for entry in entries:
+        _submit(group, code, entry["question_number"], entry["answers"])
+    assert teacher.post(f"/api/activities/{code}/phase", json={"phase": "ended"}).status_code == 200
+
+    response = teacher.get(f"/api/activities/{code}/export.csv")
+    expected = (
+        "\ufeff題號,組別,填空序號,答案,搶答順位\r\n"
+        '1,1,1,"\'=SUM(1,2)",1\r\n'
+        "2,1,1,'+1,1\r\n"
+        "3,1,1,'-1,1\r\n"
+        "4,1,1,'@a,1\r\n"
+        '5,1,1,"含逗號,和""雙引號""",1\r\n'
+    ).encode("utf-8")
+    assert response.data == expected
+    sheet_export = _export(teacher, code)
+    assert sheet_export.status_code == 200
+    assert [update.value for _spreadsheet_id, updates in adapter.write_calls for update in updates] == [
+        entry["answers"][0] for entry in entries
+    ]
+
+
+def test_csv_prefixes_control_characters_and_keeps_sheet_answers_unchanged(app):
+    import json
+    from quiz_buzzer.sheets.models import SpreadsheetStructure, WorksheetGrid
+
+    code, teacher, group, _group_b, adapter = _setup(app, import_sheet=False)
+    values = [
+        {"question_number": "6", "answers": ["Tab"]},
+        {"question_number": "7", "answers": ["CR", "LF"]},
+        {"question_number": "8", "answers": ["第一格", "第二格"]},
+    ]
+    url = "fake://csv-control-prefixes"
+    rows = [["題號", "作答"]]
+    for item in values:
+        for answer_index, _ in enumerate(item["answers"]):
+            rows.append([item["question_number"], None])
+    adapter.register(url, SpreadsheetStructure("csv-control", [WorksheetGrid("88", "CSV", rows)]))
+    assert teacher.post(f"/api/activities/{code}/import", json={"sheet_url": url}).status_code == 200
+    assert teacher.post(f"/api/activities/{code}/phase", json={"phase": "active"}).status_code == 200
+    for item in values:
+        _submit(group, code, item["question_number"], item["answers"])
+    # Seed values that can exist in stored legacy/imported records to exercise CSV safety
+    # for control-character prefixes that the current submission UI trims on input.
+    with app.app_context():
+        database = get_db()
+        for question_number, position, raw_answer in (
+            ("6", 0, "\tTab"),
+            ("7", 0, "\rCR"),
+            ("7", 1, "\nLF"),
+        ):
+            database.execute(
+                "UPDATE submission_answers SET answer = ? WHERE submission_id = ("
+                "SELECT s.id FROM submissions s JOIN questions q ON q.id = s.question_id "
+                "JOIN groups g ON g.id = s.group_id WHERE q.question_number = ? "
+                "AND g.group_number = 1 ORDER BY s.id DESC LIMIT 1) AND position = ?",
+                (raw_answer, question_number, position),
+            )
+        database.commit()
+    assert teacher.post(f"/api/activities/{code}/phase", json={"phase": "ended"}).status_code == 200
+
+    response = teacher.get(f"/api/activities/{code}/export.csv")
+    rendered = response.data.decode("utf-8-sig")
+    rows = list(csv.reader(io.StringIO(rendered, newline="")))
+    assert rows[1:] == [
+        ["6", "1", "1", "'\tTab", "1"],
+        ["7", "1", "1", "'\rCR", "1"],
+        ["7", "1", "2", "'\nLF", "1"],
+        ["8", "1", "1", "第一格", "1"],
+        ["8", "1", "2", "第二格", "1"],
+    ]
+    assert "'\tTab" in rendered
+    assert "'\rCR" in rendered
+    assert "'\nLF" in rendered
+    assert b"\r\n" in response.data
 
 
 def test_csv_and_cloud_export_require_teacher_and_ended_phase(app):

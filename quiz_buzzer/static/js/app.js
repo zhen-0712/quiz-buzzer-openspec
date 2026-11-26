@@ -161,6 +161,8 @@
     const submittingQuestions = new Set();
     const answerDrafts = new Map();
     const submissionFeedback = new Map();
+    let monitorExpanded = false;
+    let latestTeacherQuiz = null;
     let lastSignature = "";
     let lastRole = "";
     let polling = false;
@@ -187,6 +189,8 @@
 
     function renderTeacher(quiz) {
       const phase = quiz.phase;
+      latestTeacherQuiz = quiz;
+      if (phase === "ended") monitorExpanded = true;
       renderQuestions(quiz.questions || []);
       importSection.hidden = phase !== "preparation";
       exportSection.hidden = phase !== "ended";
@@ -209,6 +213,17 @@
       teacherMonitor.replaceChildren();
       if (phase === "preparation") return;
       teacherMonitor.append(element("h3", "", phase === "active" ? "即時監看" : "全部提交與順位"));
+      if (phase === "active") {
+        const toggle = element("button", "monitor-toggle", monitorExpanded ? "收起作答狀況" : "顯示作答狀況");
+        toggle.type = "button";
+        toggle.setAttribute("aria-expanded", String(monitorExpanded));
+        toggle.addEventListener("click", () => {
+          monitorExpanded = !monitorExpanded;
+          renderTeacher(latestTeacherQuiz);
+        });
+        teacherMonitor.append(toggle);
+        if (!monitorExpanded) return;
+      }
       const rows = phase === "active" ? quiz.current_submissions || [] : quiz.submissions || [];
       if (!rows.length) {
         teacherMonitor.append(element("p", "muted", "目前尚無提交。"));

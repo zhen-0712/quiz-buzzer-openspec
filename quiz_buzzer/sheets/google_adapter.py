@@ -3,7 +3,7 @@
 import re
 from collections.abc import Sequence
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
 from quiz_buzzer.sheets.models import (
     CellUpdate,
@@ -71,18 +71,8 @@ class GoogleSheetsAdapter:
     def read_structure(
         self, sheet_url: str, worksheet_id: str | None = None
     ) -> SpreadsheetStructure:
-        spreadsheet_id, requested_gid = self._parse_url(sheet_url)
-        if (
-            requested_gid is not None
-            and worksheet_id is not None
-            and requested_gid != str(worksheet_id)
-        ):
-            raise SheetsAdapterError(
-                f"連結指定的工作表 gid={requested_gid} 與匯入工作表 {worksheet_id} 不一致"
-            )
-        selected_worksheet_id = (
-            requested_gid if requested_gid is not None else str(worksheet_id) if worksheet_id is not None else None
-        )
+        spreadsheet_id = self._parse_url(sheet_url)
+        selected_worksheet_id = str(worksheet_id) if worksheet_id is not None else None
         if selected_worksheet_id is None:
             response = self._get_structure(spreadsheet_id)
         else:
@@ -97,10 +87,6 @@ class GoogleSheetsAdapter:
                 None,
             )
             if selected_title is None:
-                if requested_gid is not None:
-                    raise SheetsAdapterError(
-                        f"找不到連結指定的工作表 gid={requested_gid}"
-                    )
                 raise SheetsAdapterError(
                     f"找不到匯入時記錄的工作表 worksheet_id={selected_worksheet_id}"
                 )
@@ -186,15 +172,14 @@ class GoogleSheetsAdapter:
             raise SheetsAdapterError(f"Google Sheet 寫入失敗：{error}") from error
 
     @staticmethod
-    def _parse_url(sheet_url: str) -> tuple[str, str | None]:
+    def _parse_url(sheet_url: str) -> str:
         if not isinstance(sheet_url, str):
             raise SheetsAdapterError("Google Sheet 連結必須是文字")
         parsed = urlparse(sheet_url.strip())
         match = re.search(r"/spreadsheets/d/([A-Za-z0-9_-]+)(?:/|$)", parsed.path)
         if parsed.scheme not in {"http", "https"} or not match:
             raise SheetsAdapterError("無法從連結識別 Google Sheet ID")
-        gid_values = parse_qs(parsed.query).get("gid") or parse_qs(parsed.fragment).get("gid")
-        return match.group(1), gid_values[0] if gid_values else None
+        return match.group(1)
 
     @staticmethod
     def _grid_values(grid_data: list[dict]) -> list[list[str | None]]:
