@@ -31,6 +31,50 @@ class FailingReadAdapter(MemorySheetsAdapter):
         raise RuntimeError("fake read failure")
 
 
+class SnapshotFieldMutationAdapter(MemorySheetsAdapter):
+    def __init__(self, sources, mutation):
+        super().__init__(sources)
+        self.mutation = mutation
+
+    def read_structure(self, sheet_url, worksheet_id=None):
+        structure = super().read_structure(sheet_url, worksheet_id)
+        changed = copy.deepcopy(structure)
+        worksheet = changed.worksheets[0]
+        if self.mutation == "worksheet_id":
+            worksheet.worksheet_id = "changed-worksheet-id"
+        elif self.mutation == "worksheet_title":
+            worksheet.title = "Changed worksheet title"
+        elif self.mutation == "header_row_index":
+            worksheet.values.insert(0, [])
+            worksheet.merged_ranges = [
+                MergedRange(
+                    item.start_row_index + 1,
+                    item.end_row_index + 1,
+                    item.start_column_index,
+                    item.end_column_index,
+                )
+                for item in worksheet.merged_ranges
+            ]
+        elif self.mutation in {"question_column_index", "answer_column_index"}:
+            header_row = next(
+                row for row in worksheet.values
+                if "題號" in row and "作答" in row
+            )
+            start_column = 0 if self.mutation == "question_column_index" else header_row.index("作答")
+            for row in worksheet.values:
+                row.insert(start_column, None)
+            worksheet.merged_ranges = [
+                MergedRange(
+                    item.start_row_index,
+                    item.end_row_index,
+                    item.start_column_index + (item.start_column_index >= start_column),
+                    item.end_column_index + (item.end_column_index > start_column),
+                )
+                for item in worksheet.merged_ranges
+            ]
+        return changed
+
+
 @pytest.fixture
 def app(tmp_path):
     structure = load_xlsx_as_sheet_structure(FIXTURE)
@@ -255,6 +299,52 @@ def test_export_collects_every_affected_question_before_zero_write(app):
     assert "第 2 題" in message
     assert "第 3 題" in message
     assert "第 4 題" in message
+    assert adapter.write_calls == []
+
+
+@pytest.mark.parametrize(
+    ("mutation", "reason"),
+    [
+        ("worksheet_id", "工作表識別碼"),
+        ("worksheet_title", "工作表名稱"),
+        ("header_row_index", "標題列位置"),
+        ("question_column_index", "題號欄位置"),
+        ("answer_column_index", "作答欄位置"),
+    ],
+)
+def test_export_aborts_on_each_worksheet_snapshot_field_change(app, mutation, reason):
+    code, teacher, _group_a, _group_b, original_adapter = _setup(app, phase="ended")
+    adapter = SnapshotFieldMutationAdapter(original_adapter.sources, mutation)
+    app.config["SHEETS_ADAPTER"] = adapter
+
+    response = _export(teacher, code)
+
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "export_structure_changed"
+    assert reason in response.get_json()["message"]
+    assert adapter.write_calls == []
+
+
+def test_export_aborts_when_local_answer_cell_count_disagrees_with_sheet(app):
+    code, teacher, _group_a, _group_b, adapter = _setup(app, phase="ended")
+    with app.app_context():
+        database = get_db()
+        question = database.execute(
+            "SELECT id FROM questions WHERE question_number = '2'"
+        ).fetchone()
+        database.execute(
+            "DELETE FROM answer_cells WHERE question_id = ? AND position = ("
+            "SELECT MAX(position) FROM answer_cells WHERE question_id = ?)",
+            (question["id"], question["id"]),
+        )
+        database.commit()
+
+    response = _export(teacher, code)
+
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "export_structure_changed"
+    assert "第 2 題" in response.get_json()["message"]
+    assert "本機填空格數" in response.get_json()["message"]
     assert adapter.write_calls == []
 
 

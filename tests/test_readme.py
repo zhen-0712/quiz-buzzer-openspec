@@ -1,3 +1,5 @@
+import ast
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -57,8 +59,12 @@ def test_readme_documents_export_backup_and_csv_row_convention():
     assert "CSV 只包含勝出組答案" in readme
     assert "填空序號" in readme
     assert "CRLF" in readme
-    assert "答案欄前加單引號" in readme
+    assert "會加單引號前綴" in readme
     assert "整份中止" in readme
+    assert "Excel 開啟時此前綴會顯示出來，這是刻意設計" in readme
+    assert "SheetParseError" in readme
+    assert "只回報 parser 的第一個錯誤位置" in readme
+    assert "列出全部問題題號" in readme
 
 
 def test_readme_documents_sheet_selection_latest_results_and_student_draft_check():
@@ -90,6 +96,22 @@ def test_acceptance_matrix_maps_align_and_fix_regressions():
         "test_student_script_captures_drafts_and_reenables_the_current_form",
     ):
         assert test_name in matrix
+
+
+def test_every_acceptance_matrix_test_reference_exists():
+    matrix = (ROOT / "docs" / "acceptance-matrix.md").read_text(encoding="utf-8")
+    existing = set()
+    for test_file in (ROOT / "tests").glob("test_*.py"):
+        module = ast.parse(test_file.read_text(encoding="utf-8"))
+        existing.update(
+            node.name
+            for node in ast.walk(module)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name.startswith("test_")
+        )
+    referenced = set(re.findall(r"::(test_[A-Za-z0-9_]+)", matrix))
+
+    assert referenced <= existing, f"不存在的驗收矩陣測試名稱：{sorted(referenced - existing)}"
 
 
 def test_documented_entrypoint_help_runs():
