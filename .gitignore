@@ -1,11 +1,23 @@
 .env
+.env.*
 credentials*.json
 token*.json
 client_secret*.json
+*.pem
+*.key
 *.db
+*.db-*
+*.sqlite
 *.sqlite3
+*.sqlite3-*
+*.sqlite-*
+/貼上視窗 A 的資料庫路徑
+/instance/
+/.credentials/
+/credentials/
 __pycache__/
 *.pyc
 .venv/
 venv/
+.pytest_cache/
 proposal-all.txt 

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>課堂搶答系統</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  </head>
+  <body>
+    <main class="home-shell">
+      <header class="page-heading">
+        <p class="eyebrow">CLASSROOM QUIZ</p>
+        <h1>課堂搶答系統</h1>
+        <p class="muted">建立活動，或輸入活動代碼加入課堂。</p>
+      </header>
+      <p class="message" data-home-message role="status" aria-live="polite"></p>
+      <div class="home-grid">
+        <section class="panel" aria-labelledby="create-heading">
+          <h2 id="create-heading">老師｜建立活動</h2>
+          <form data-create-form>
+            <label for="create-groups">組數</label>
+            <input id="create-groups" name="group_count" type="number" min="1" max="100" value="10" required>
+            <label for="create-password">活動密碼</label>
+            <input id="create-password" name="password" type="password" minlength="6" maxlength="64" autocomplete="new-password" required>
+            <p class="field-hint">6–64 字元，請勿使用全空白密碼。</p>
+            <button type="submit">建立活動</button>
+          </form>
+        </section>
+
+        <section class="panel" aria-labelledby="teacher-login-heading">
+          <h2 id="teacher-login-heading">老師｜重新登入</h2>
+          <form data-teacher-login-form>
+            <label for="teacher-code">活動代碼</label>
+            <input id="teacher-code" name="activity_code" autocomplete="off" required>
+            <label for="teacher-password">活動密碼</label>
+            <input id="teacher-password" name="password" type="password" autocomplete="current-password" required>
+            <button type="submit" class="button-secondary">進入老師頁面</button>
+          </form>
+        </section>
+
+        <section class="panel" aria-labelledby="join-heading">
+          <h2 id="join-heading">學生｜加入或重新進入</h2>
+          <form data-join-form>
+            <label for="join-code">活動代碼</label>
+            <input id="join-code" name="activity_code" autocomplete="off" required>
+            <label for="join-group">組別編號</label>
+            <input id="join-group" name="group_number" type="number" min="1" max="100" required>
+            <p class="field-hint" data-group-range>請輸入活動設定範圍內的組別編號。</p>
+            <button type="submit" class="button-secondary">加入活動</button>
+          </form>
+        </section>
+      </div>
+    </main>
+    <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+  </body>
+</html>
